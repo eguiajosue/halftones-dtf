@@ -19,23 +19,18 @@
       </div>
     </header>
 
+    <div class="presetbar">
+      <div id="presetHolder" class="grow minw0"></div>
+      <sp-action-button id="btnPresetSave" size="s" quiet title="Guardar ajustes como preset">Guardar</sp-action-button>
+      <sp-action-button id="btnPresetDel" size="s" quiet title="Borrar preset seleccionado">Borrar</sp-action-button>
+    </div>
+
     <div id="lockBanner" class="banner warn hidden"></div>
     <div id="msg" class="banner hidden"></div>
 
     <!-- Contenido adaptable: las tarjetas se reparten en columnas según el ancho -->
     <main class="scroll">
       <div class="cards">
-
-        <section class="slot">
-          <div class="card">
-            <sp-detail class="eyebrow">Preset</sp-detail>
-            <div class="row">
-              <div id="presetHolder" class="grow minw0"></div>
-              <sp-action-button id="btnPresetSave" size="s" quiet title="Guardar ajustes como preset">Guardar</sp-action-button>
-              <sp-action-button id="btnPresetDel" size="s" quiet title="Borrar preset seleccionado">Borrar</sp-action-button>
-            </div>
-          </div>
-        </section>
 
         <!-- ===== Paso 1: configuración ===== -->
         <div id="step1" class="step">
