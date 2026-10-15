@@ -6,7 +6,7 @@ Implementación propia basada en `Especificacion_Plugin_DTF_Halftone.md`. Todos 
 
 ## Uso
 1. **Paso 1:** elige tamaño (in/cm/mm), semitono (tipo, LPI, ángulo), knockout y colores → **Preparar**.
-2. **Paso 2:** ajusta niveles de entrada/salida, realce de sombras, vista (Original/Prenda/Alfa/Máscara), limpieza y de-fringe en vivo.
+2. **Paso 2 (en vivo):** tipo de semitono, frecuencia y ángulo, niveles de entrada/salida, realce de sombras, knockout y colores se aplican al documento mientras arrastras. Vistas Original/Prenda/Alfa/Máscara, limpieza y de-fringe.
 3. **Aplicar** crea `<doc> - Prepped` con una sola capa rasterizada con alfa. **Cancelar** descarta el trabajo; el original nunca se modifica.
 
 ## Desarrollo

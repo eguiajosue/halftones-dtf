@@ -1,40 +1,25 @@
 const { state } = require("../state");
-const { bp, layerById, setVisible } = require("./bp");
+const { bp, layerById } = require("./bp");
 
-const setMaskEnabled = (id, on) => bp({ _obj: "set", _target: [layerById(id)],
-  to: { _obj: "layer", userMaskEnabled: on } });
+const vis = (id, on) => ({ _obj: on ? "show" : "hide", null: [layerById(id)] });
+const maskOn = (id, on) => ({ _obj: "set", _target: [layerById(id)], to: { _obj: "layer", userMaskEnabled: on } });
 
-// Original / Prenda / Alfa / Máscara
-async function setPreviewMode(mode) {
+// Descriptores de cada vista (Original / Prenda / Alfa / Máscara), para enviarlos en un solo batchPlay
+function previewDescs(mode) {
   const L = state.layers;
-  state.previewMode = mode;
   switch (mode) {
-    case "original":
-      await setVisible(L.mapGroup, false);
-      await setVisible(L.art, true);
-      await setMaskEnabled(L.art, false);
-      await setVisible(L.shirt, false);
-      break;
-    case "shirt":
-      await setVisible(L.mapGroup, false);
-      await setVisible(L.art, true);
-      await setMaskEnabled(L.art, true);
-      await setVisible(L.shirt, true);
-      break;
-    case "alpha":
-      await setVisible(L.mapGroup, false);
-      await setVisible(L.art, true);
-      await setMaskEnabled(L.art, true);
-      await setVisible(L.shirt, false);
-      break;
-    case "mask":
-      await setVisible(L.art, false);
-      await setVisible(L.shirt, false);
-      await setVisible(L.mapGroup, true);
-      break;
+    case "original": return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, false), vis(L.shirt, false)];
+    case "alpha":    return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, false)];
+    case "mask":     return [vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true)];
+    default:         return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, true)];
   }
+}
+
+async function setPreviewMode(mode) {
+  state.previewMode = mode;
+  await bp(previewDescs(mode));
 }
 
 const restorePreviewVisibility = () => setPreviewMode(state.previewMode);
 
-module.exports = { setPreviewMode, restorePreviewVisibility, setMaskEnabled };
+module.exports = { setPreviewMode, restorePreviewVisibility, previewDescs, vis };

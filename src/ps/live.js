@@ -1,9 +1,9 @@
 const { app } = require("photoshop");
 const { state } = require("../state");
-const { modal, findLayer } = require("./bp");
+const { modal, findLayer, selectLayer } = require("./bp");
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
-const { selectLayer } = require("./bp");
+const { setPreviewMode } = require("./preview");
 
 // Los IDs pueden desaparecer (deshacer, borrado manual): validar antes de operar.
 function validateState() {
@@ -14,62 +14,35 @@ function validateState() {
   }
 }
 
-const run = (name, fn) => modal(name, async (ctx) => { validateState(); await fn(ctx); }, { history: true });
-
-const updateLevels = s => run("Halftones DTF: Niveles", async () => {
-  await L_.setLevels(state.layers.levels, s);
-  await refreshMask(s);
-});
-
-const updateShadows = s => run("Halftones DTF: Sombras", async () => {
-  await L_.setShadowBoost(s.shadow);
-  await refreshMask(s);
-});
-
-const updateColors = (s, { knockoutChanged = true } = {}) => run("Halftones DTF: Color", async () => {
-  const L = state.layers;
-  await L_.setSolid(L.shirt, s.shirt);
-  if (knockoutChanged) {
-    await L_.setSolid(L.ko, s.knockoutColor);
-    await L_.setSolid(L.mapBg, s.knockoutColor);
-    await refreshMask(s);
-  }
-});
-
-const updateKnockout = s => run("Halftones DTF: Knockout", () => refreshMask(s));
-
-// Tipo, LPI o ángulo. Si cambia el tipo se reemplaza la capa de motivo.
-const updateHalftone = (s, typeChanged) => run("Halftones DTF: Semitono", async () => {
+async function replaceHalftone(s) {
   const L = state.layers;
   const doc = app.activeDocument;
-  if (typeChanged) {
-    const old = findLayer(doc, L.halftone);
-    await selectLayer(L.threshold);
-    const id = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
-    await findLayer(doc, id).moveAbove(findLayer(doc, L.threshold));
-    await old.delete();
-    L.halftone = id;
-  } else {
-    await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
-  }
-  await refreshMask(s);
-});
-
-// Aplica todos los ajustes (cambio de preset en estado ACTIVE).
-const updateAll = s => run("Halftones DTF: Preset", async () => {
-  const L = state.layers;
-  const doc = app.activeDocument;
-  await L_.setSolid(L.shirt, s.shirt);
-  await L_.setSolid(L.ko, s.knockoutColor);
-  await L_.setSolid(L.mapBg, s.knockoutColor);
-  await L_.setLevels(L.levels, s);
-  await L_.setShadowBoost(s.shadow);
+  const old = findLayer(doc, L.halftone);
   await selectLayer(L.threshold);
   const id = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
   await findLayer(doc, id).moveAbove(findLayer(doc, L.threshold));
-  await findLayer(doc, L.halftone).delete();
+  await old.delete();
   L.halftone = id;
-  await refreshMask(s);
-});
+}
 
-module.exports = { validateState, updateLevels, updateShadows, updateColors, updateKnockout, updateHalftone, updateAll };
+// Aplica en una sola operación modal (una entrada de historial) solo lo que cambió.
+// kinds: shirt, ko, levels, shadow, ht, htType, mask, preview
+const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask"];
+
+function sync(s, kinds) {
+  return modal("Halftones DTF: Ajuste en vivo", async () => {
+    validateState();
+    const L = state.layers;
+    if (kinds.has("shirt")) await L_.setSolid(L.shirt, s.shirt);
+    if (kinds.has("ko")) { await L_.setSolid(L.ko, s.knockoutColor); await L_.setSolid(L.mapBg, s.knockoutColor); }
+    if (kinds.has("levels")) await L_.setLevels(L.levels, s);
+    if (kinds.has("shadow")) await L_.setShadowBoost(s.shadow);
+    if (kinds.has("htType")) await replaceHalftone(s);
+    else if (kinds.has("ht")) await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
+
+    if (MASK_KINDS.some(k => kinds.has(k))) await refreshMask(s);   // restaura también la vista
+    else if (kinds.has("preview")) await setPreviewMode(state.previewMode);
+  }, { history: true });
+}
+
+module.exports = { validateState, sync, ALL_KINDS: ["shirt", "ko", "levels", "shadow", "htType", "mask"] };
