@@ -14,7 +14,7 @@ El plugin se escribió sin poder ejecutarlo en Photoshop. Antes de distribuirlo,
 - [ ] `selectAllLayers` + `newPlacedLayer` · [ ] `make pattern` (Definir motivo) y `make contentLayer/patternLayer` con `scale`/`angle`
 - [ ] `createLayerGroup`, `moveBelow/moveAbove`, `layer.duplicate(doc)`, `documents.add`
 - [ ] `adaptCorrect` y borrado del filtro inteligente (`filterFX` índice 1)
-- [ ] `applyImageEvent` (combinado → máscara) y variante desde documento temporal
+- [ ] Máscara desde selección (`set selection` ← canal RGB, `make` máscara `revealSelection`; sustituye a `applyImageEvent`, que fallaba con "error de programa"). El método 2 (trama nativa) sigue usando `applyImageEvent` y cae al método 1 si falla
 - [ ] `minimum` + `preserveShape`, `defringe`, `median`, `thresholdClassEvent`, `thresholdClassEvent` como capa de ajuste
 - [ ] Respuesta de `showColorPicker` · [ ] `duplicate merged` · [ ] `convertMode bitmapMode/halftoneScreen`
 - [ ] Polaridad (T2): si los puntos salen invertidos, invertir los tiles (`255 - v`) y regenerar con `npm run tiles`.

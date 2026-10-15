@@ -104,9 +104,6 @@ async function runPrep(s) {
         at("sombras y máscara");
         state.shadowOn = false;
         if (s.shadow > 0) await L_.setShadowBoost(s.shadow);
-        await selectLayer(artId);
-        await bp({ _obj: "make", new: { _class: "channel" },
-                   at: channel("mask"), using: { _enum: "userMaskEnabled", _value: "revealAll" } });
 
         // 7) Primer cálculo de la máscara y vista
         at("calcular máscara");
@@ -124,8 +121,7 @@ async function runPrep(s) {
     await discardWork(work);
     resetState();
     if (e.message === CANCELLED) return false;
-    e.message = `${e.message} [paso: ${stage}]`;
-    throw e;
+    throw new Error(`${e.message} [paso: ${stage}]`);
   }
   return true;
 }
@@ -158,8 +154,11 @@ async function applyPrep(s) {
     ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
 
     // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
-    if (s.nativeFinal && s.halftone && s.knockout) await nativeScreenMask(s);
-    else await refreshMask(s);
+    await refreshMask(s);
+    if (s.nativeFinal && s.halftone && s.knockout) {
+      try { await nativeScreenMask(s); }
+      catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
+    }
     checkCancel(ctx);
 
     await selectLayer(L.art);

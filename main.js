@@ -779,10 +779,25 @@ module.exports = { validateState, updateLevels, updateShadows, updateColors, upd
 
 };
 defs["src/ps/mask.js"] = function (module, exports, require) {
-// Recalcula la máscara de ART como composición de MAP GROUP.
+// Recalcula la máscara de ART como la composición de MAP GROUP.
+// Sin Aplicar imagen: se carga la luminosidad compuesta (solo MAP GROUP visible) como selección
+// y se crea la máscara de capa desde esa selección (conserva los grises).
 const { state } = require("../state");
 const { bp, layerById, selectLayer, channel, setVisible } = require("./bp");
 const { restorePreviewVisibility } = require("./preview");
+
+const SELECTION = { _ref: "channel", _property: "selection" };
+const selectNone = () => bp({ _obj: "set", _target: [SELECTION], to: { _enum: "ordinal", _value: "none" } });
+const selectComposite = () => bp({ _obj: "set", _target: [SELECTION], to: channel("RGB") });
+
+async function deleteMask() {
+  try {
+    await bp({ _obj: "delete", _target: [channel("mask")] });
+  } catch (e) { /* aún no hay máscara */ }
+}
+
+const makeMask = how => bp({ _obj: "make", new: { _class: "channel" }, at: channel("mask"),
+                             using: { _enum: "userMaskEnabled", _value: how } });
 
 async function refreshMask(s = state.settings) {
   const L = state.layers;
@@ -793,24 +808,25 @@ async function refreshMask(s = state.settings) {
   await setVisible(L.halftone, s.halftone);
   await setVisible(L.threshold, !s.halftone);
 
-  await selectLayer(L.art);
-  await bp({ _obj: "select", _target: [channel("mask")], makeVisible: false });
-
   if (!s.knockout) {
-    // Sin knockout: todo opaco (máscara blanca)
-    await bp({ _obj: "fill", using: { _enum: "fillContents", _value: "white" },
-               opacity: { _unit: "percentUnit", _value: 100 }, mode: { _enum: "blendMode", _value: "normal" } });
+    // Sin knockout: todo opaco
+    await selectLayer(L.art);
+    await deleteMask();
+    await makeMask("revealAll");
   } else {
-    // Solo MAP GROUP visible, Imagen > Aplicar imagen (combinado) sobre la máscara
+    // Solo MAP GROUP visible -> luminosidad compuesta como selección
     await bp([
       { _obj: "hide", null: [layerById(L.art), layerById(L.shirt)] },
-      { _obj: "show", null: [layerById(L.mapGroup)] },
-      { _obj: "applyImageEvent", with: { _obj: "calculation",
-          to: [channel("RGB"), { _ref: "layer", _enum: "ordinal", _value: "merged" }],
-          calculation: { _enum: "calculationType", _value: "normal" } } },     // 🔍
-      { _obj: "hide", null: [layerById(L.mapGroup)] }
+      { _obj: "show", null: [layerById(L.mapGroup)] }
     ]);
+    await selectComposite();
+    await bp({ _obj: "hide", null: [layerById(L.mapGroup)] });
+    await selectLayer(L.art);
+    await deleteMask();
+    await makeMask("revealSelection");
+    await selectNone();
   }
+  await selectLayer(L.art);
   await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
   await restorePreviewVisibility();
 }
@@ -925,9 +941,6 @@ async function runPrep(s) {
         at("sombras y máscara");
         state.shadowOn = false;
         if (s.shadow > 0) await L_.setShadowBoost(s.shadow);
-        await selectLayer(artId);
-        await bp({ _obj: "make", new: { _class: "channel" },
-                   at: channel("mask"), using: { _enum: "userMaskEnabled", _value: "revealAll" } });
 
         // 7) Primer cálculo de la máscara y vista
         at("calcular máscara");
@@ -945,8 +958,7 @@ async function runPrep(s) {
     await discardWork(work);
     resetState();
     if (e.message === CANCELLED) return false;
-    e.message = `${e.message} [paso: ${stage}]`;
-    throw e;
+    throw new Error(`${e.message} [paso: ${stage}]`);
   }
   return true;
 }
@@ -979,8 +991,11 @@ async function applyPrep(s) {
     ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
 
     // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
-    if (s.nativeFinal && s.halftone && s.knockout) await nativeScreenMask(s);
-    else await refreshMask(s);
+    await refreshMask(s);
+    if (s.nativeFinal && s.halftone && s.knockout) {
+      try { await nativeScreenMask(s); }
+      catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
+    }
     checkCancel(ctx);
 
     await selectLayer(L.art);
