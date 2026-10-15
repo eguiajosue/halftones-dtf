@@ -1,13 +1,136 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <link rel="stylesheet" href="src/styles.css" />
-  </head>
-  <body>
-    <h2>Halftones DTF</h2>
-    <sp-body id="status">Listo.</sp-body>
-    <sp-button id="btn-info" variant="cta">Probar conexión</sp-button>
-    <script src="src/main.js"></script>
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="lockBanner" class="banner hidden"></div>
+  <div id="statusLine" class="status"></div>
+
+  <div class="row">
+    <sp-picker id="presetPicker" class="grow" label="Preset"><sp-menu slot="options"></sp-menu></sp-picker>
+    <sp-action-button id="btnPresetSave" title="Guardar preset">Guardar</sp-action-button>
+    <sp-action-button id="btnPresetDel" title="Borrar preset">Borrar</sp-action-button>
+  </div>
+
+  <!-- ===== Paso 1: configuración ===== -->
+  <div id="step1">
+    <sp-body id="lblCurrentSize" class="muted">Tamaño actual a 300 ppi: —</sp-body>
+    <div class="row">
+      <sp-textfield id="inW" type="number" class="grow"></sp-textfield>
+      <span>×</span>
+      <sp-textfield id="inH" type="number" class="grow"></sp-textfield>
+      <sp-picker id="btnUnit" size="s"><sp-menu slot="options">
+        <sp-menu-item>in</sp-menu-item><sp-menu-item>cm</sp-menu-item><sp-menu-item>mm</sp-menu-item>
+      </sp-menu></sp-picker>
+    </div>
+
+    <sp-checkbox id="chkHalftone" checked>Semitono</sp-checkbox>
+    <div class="row">
+      <sp-picker id="selHtType" class="grow"><sp-menu slot="options">
+        <sp-menu-item>Redondo</sp-menu-item><sp-menu-item>Línea</sp-menu-item>
+        <sp-menu-item>Diamante</sp-menu-item><sp-menu-item>Elipse</sp-menu-item>
+      </sp-menu></sp-picker>
+    </div>
+    <div class="row">
+      <label class="grow">Frecuencia / pulgada <span id="lblLpi" class="muted"></span></label>
+      <sp-textfield id="inLpi" type="number" class="num"></sp-textfield>
+    </div>
+    <div class="row">
+      <label class="grow">Ángulo (°)</label>
+      <sp-textfield id="inAngle" type="number" class="num"></sp-textfield>
+    </div>
+
+    <sp-checkbox data-bind="knockout" checked>Knockout de color</sp-checkbox>
+    <div class="row colors">
+      <label>Knockout</label><div class="sw" data-color="knockoutColor"></div>
+      <sp-action-button class="btnLink" title="Vincular colores">Vinc.</sp-action-button>
+      <label>Prenda</label><div class="sw" data-color="shirt"></div>
+    </div>
+
+    <sp-button id="btnRun" variant="cta" class="full">Preparar</sp-button>
+  </div>
+
+  <!-- ===== Paso 2: edición en vivo ===== -->
+  <div id="step2" class="hidden">
+    <sp-checkbox data-bind="knockout" checked>Knockout de color</sp-checkbox>
+    <div class="row colors">
+      <label>Knockout</label><div class="sw" data-color="knockoutColor"></div>
+      <sp-action-button class="btnLink" title="Vincular colores">Vinc.</sp-action-button>
+      <label>Prenda</label><div class="sw" data-color="shirt"></div>
+    </div>
+    <div class="row">
+      <sp-action-button id="btnDefaults">Sliders por defecto</sp-action-button>
+      <sp-action-button id="btnEditHalftone">Editar semitono</sp-action-button>
+    </div>
+
+    <label>Niveles de entrada</label>
+    <div id="lvlIn" class="slider"></div>
+    <div class="row nums">
+      <sp-textfield id="inBlack" type="number"></sp-textfield>
+      <sp-textfield id="inGamma" type="number"></sp-textfield>
+      <sp-textfield id="inWhite" type="number"></sp-textfield>
+    </div>
+
+    <label>Niveles de salida (forzar semitonos)</label>
+    <div id="lvlOut" class="slider"></div>
+    <div class="row nums">
+      <sp-textfield id="inOutBlack" type="number"></sp-textfield>
+      <sp-textfield id="inOutWhite" type="number"></sp-textfield>
+    </div>
+
+    <label>Realce de sombras: <span id="lblShadow">0</span></label>
+    <div id="sldShadow" class="slider"></div>
+
+    <label>Vista</label>
+    <div class="row seg" id="segPreview">
+      <sp-action-button data-mode="original">Original</sp-action-button>
+      <sp-action-button data-mode="shirt">Prenda</sp-action-button>
+      <sp-action-button data-mode="alpha">Alfa</sp-action-button>
+      <sp-action-button data-mode="mask">Máscara</sp-action-button>
+    </div>
+
+    <label>Limpieza</label>
+    <sp-picker id="radCleanup" class="full"><sp-menu slot="options">
+      <sp-menu-item>Ninguna</sp-menu-item><sp-menu-item>Estándar</sp-menu-item><sp-menu-item>Alta</sp-menu-item>
+    </sp-menu></sp-picker>
+    <sp-checkbox id="chkDefringe">De-fringe (eliminar halo)</sp-checkbox>
+    <sp-checkbox id="chkNativeFinal">Trama final con motor de Photoshop</sp-checkbox>
+
+    <div class="row">
+      <sp-button id="btnCancel" variant="secondary" class="grow">Cancelar</sp-button>
+      <sp-button id="btnApply" variant="cta" class="grow">Aplicar</sp-button>
+    </div>
+  </div>
+
+  <dialog id="dlgHalftone">
+    <form method="dialog">
+      <sp-heading size="XS">Editar semitono</sp-heading>
+      <sp-picker id="dlgHtType" class="full"><sp-menu slot="options">
+        <sp-menu-item>Redondo</sp-menu-item><sp-menu-item>Línea</sp-menu-item>
+        <sp-menu-item>Diamante</sp-menu-item><sp-menu-item>Elipse</sp-menu-item>
+      </sp-menu></sp-picker>
+      <div class="row"><label class="grow">Frecuencia (LPI)</label><sp-textfield id="dlgLpi" type="number" class="num"></sp-textfield></div>
+      <div class="row"><label class="grow">Ángulo (°)</label><sp-textfield id="dlgAngle" type="number" class="num"></sp-textfield></div>
+      <div class="row">
+        <sp-button id="dlgHtCancel" variant="secondary" class="grow">Cancelar</sp-button>
+        <sp-button id="dlgHtOk" variant="cta" class="grow">Aceptar</sp-button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgPreset">
+    <form method="dialog">
+      <sp-heading size="XS">Guardar preset</sp-heading>
+      <sp-textfield id="dlgPresetName" class="full" placeholder="Nombre"></sp-textfield>
+      <div class="row">
+        <sp-button id="dlgPresetCancel" variant="secondary" class="grow">Cancelar</sp-button>
+        <sp-button id="dlgPresetOk" variant="cta" class="grow">Guardar</sp-button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="src/main.js"></script>
+</body>
 </html>
