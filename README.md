@@ -12,7 +12,7 @@ Implementación propia basada en `Especificacion_Plugin_DTF_Halftone.md`. Todos 
 ## Desarrollo
 1. Instala **UXP Developer Tool**; en Photoshop activa *Preferencias > Plugins > Habilitar modo desarrollador*.
 2. UDT → *Add Plugin* → `manifest.json` → *Load*.
-3. `npm run check` (regla nativa), `npm run package` → `dist/HalftonesDTF_v<versión>.ccx`.
+3. `npm run build` genera `main.js` (bundle de `src/`; UDT carga ese archivo, hay que reconstruirlo tras editar `src/`). `npm run check` (regla nativa), `npm run package` → `dist/HalftonesDTF_v<versión>.ccx`.
 4. `npm run tiles` / `npm run icons` regeneran los recursos (Python 3, solo herramienta de desarrollo).
 
 ## Estado

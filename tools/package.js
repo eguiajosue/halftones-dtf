@@ -8,5 +8,5 @@ const { version } = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"),
 const out = path.join(root, "dist", `HalftonesDTF_v${version}.ccx`);
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.rmSync(out, { force: true });
-execFileSync("zip", ["-qr", out, "manifest.json", "index.html", "styles.css", "src", "assets", "-x", "*.DS_Store"], { cwd: root, stdio: "inherit" });
+execFileSync("zip", ["-qr", out, "manifest.json", "index.html", "styles.css", "main.js", "assets", "-x", "*.DS_Store"], { cwd: root, stdio: "inherit" });
 console.log("Creado", path.relative(root, out));
