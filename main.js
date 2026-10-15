@@ -465,8 +465,12 @@ const px  = v => ({ _unit: "pixelsUnit",  _value: v });
 const pct = v => ({ _unit: "percentUnit", _value: v });
 const deg = v => ({ _unit: "angleUnit",   _value: v });
 const rgb = ({ r, g, b }) => ({ _obj: "RGBColor", red: r, grain: g, blue: b }); // "grain" = verde
-const layerById = id => ({ _ref: "layer", _id: id });
-const docById   = id => ({ _ref: "document", _id: id });
+function validId(id, what = "capa") {
+  if (typeof id !== "number" || !Number.isFinite(id)) throw new Error(`ID de ${what} inválido (${id})`);
+  return id;
+}
+const layerById = id => ({ _ref: "layer", _id: validId(id) });
+const docById   = id => ({ _ref: "document", _id: validId(id, "documento") });
 const targetLayer = { _ref: "layer", _enum: "ordinal", _value: "targetEnum" };
 const channel = v => ({ _ref: "channel", _enum: "channel", _value: v });
 
@@ -521,7 +525,7 @@ function findLayer(container, id) {
 const baseName = title => String(title).replace(/\.[^./\\]+$/, "");
 
 module.exports = {
-  px, pct, deg, rgb, layerById, docById, targetLayer, channel,
+  px, pct, deg, rgb, validId, layerById, docById, targetLayer, channel,
   bp, modal, selectLayer, setVisible, lastLayerId, findLayer, baseName
 };
 
@@ -745,8 +749,8 @@ const updateHalftone = (s, typeChanged) => run("Halftones DTF: Semitono", async 
     const old = findLayer(doc, L.halftone);
     await selectLayer(L.threshold);
     const id = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
-    findLayer(doc, id).moveAbove(findLayer(doc, L.threshold));
-    old.delete();
+    await findLayer(doc, id).moveAbove(findLayer(doc, L.threshold));
+    await old.delete();
     L.halftone = id;
   } else {
     await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
@@ -765,8 +769,8 @@ const updateAll = s => run("Halftones DTF: Preset", async () => {
   await L_.setShadowBoost(s.shadow);
   await selectLayer(L.threshold);
   const id = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
-  findLayer(doc, id).moveAbove(findLayer(doc, L.threshold));
-  findLayer(doc, L.halftone).delete();
+  await findLayer(doc, id).moveAbove(findLayer(doc, L.threshold));
+  await findLayer(doc, L.halftone).delete();
   L.halftone = id;
   await refreshMask(s);
 });
@@ -818,7 +822,7 @@ defs["src/ps/pipeline.js"] = function (module, exports, require) {
 const { app, constants } = require("photoshop");
 const { state, resetState } = require("../state");
 const {
-  bp, modal, px, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
+  bp, modal, px, validId, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
 } = require("./bp");
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
@@ -873,22 +877,25 @@ async function runPrep(s) {
         await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
         const artId = await lastLayerId();
         await bp({ _obj: "set", _target: [targetLayer], to: { _obj: "layer", name: "ART" } });
+        validId(artId, "ART");
         const artLayer = findLayer(work, artId);
+        if (!artLayer) throw new Error("No se encontró la capa ART");
 
         // 4) Color de prenda (al fondo)
         at("capa SHIRT COLOR");
         const shirtId = await L_.makeSolid("SHIRT COLOR", s.shirt);
-        findLayer(work, shirtId).moveBelow(artLayer);                                                  // 🔍
+        await findLayer(work, shirtId).moveBelow(artLayer);                                                  // 🔍
         checkCancel(ctx);
 
         // 5) MAP GROUP: fondo (color de KO) < arte < KO < desat < niveles < umbral < motivo
         at("MAP ART");
-        const mapArt = artLayer.duplicate();
+        const mapArt = await artLayer.duplicate();     // en UXP puede ser una promesa
+        if (!mapArt) throw new Error("No se pudo duplicar ART");
         mapArt.name = "MAP ART";
-        const mapArtId = mapArt.id;
+        const mapArtId = validId(mapArt.id, "MAP ART");
         await selectLayer(mapArtId);
         const mapBgId = await L_.makeSolid("MAP BG", s.knockoutColor);   // el arte transparente cuenta como "fondo"
-        findLayer(work, mapBgId).moveBelow(findLayer(work, mapArtId));
+        await findLayer(work, mapBgId).moveBelow(findLayer(work, mapArtId));
         await selectLayer(mapArtId);
         at("KO COLOR");
         const koId = await L_.makeSolid("KO COLOR", s.knockoutColor, "difference");
@@ -898,14 +905,18 @@ async function runPrep(s) {
         const thrId = await L_.makeThreshold("MAP THRESHOLD");
         at("capa de semitono");
         const htId = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
-        findLayer(work, htId).moveAbove(findLayer(work, thrId));
+        await findLayer(work, htId).moveAbove(findLayer(work, thrId));
         checkCancel(ctx);
         ctx.reportProgress({ value: 0.6, commandName: "Construyendo mapa de semitono" });
 
         at("agrupar MAP GROUP");
-        const members = [mapBgId, mapArtId, koId, desatId, levelsId, thrId, htId].map(id => findLayer(work, id));
+        const members = [mapBgId, mapArtId, koId, desatId, levelsId, thrId, htId].map(id => {
+          const l = findLayer(work, id);
+          if (!l) throw new Error(`Capa no encontrada (id ${id})`);
+          return l;
+        });
         const group = await work.createLayerGroup({ name: "MAP GROUP", fromLayers: members });        // 🔍
-        const mapGroupId = group.id;
+        const mapGroupId = validId(group.id, "MAP GROUP");
 
         Object.assign(state.layers, { art: artId, shirt: shirtId, mapGroup: mapGroupId, mapArt: mapArtId,
           mapBg: mapBgId, ko: koId, desat: desatId, levels: levelsId, threshold: thrId, halftone: htId });
@@ -1007,7 +1018,7 @@ async function applyPrep(s) {
       mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name
     });
     const copy = await layer.duplicate(out);                                                        // 🔍
-    for (const l of [...out.layers]) if (l.id !== copy.id) l.delete();
+    for (const l of [...out.layers]) if (l.id !== copy.id) await l.delete();
     await work.closeWithoutSaving();
     app.activeDocument = out;
     ctx.reportProgress({ value: 1, commandName: "Listo" });

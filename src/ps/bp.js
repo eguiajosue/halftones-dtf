@@ -4,8 +4,12 @@ const px  = v => ({ _unit: "pixelsUnit",  _value: v });
 const pct = v => ({ _unit: "percentUnit", _value: v });
 const deg = v => ({ _unit: "angleUnit",   _value: v });
 const rgb = ({ r, g, b }) => ({ _obj: "RGBColor", red: r, grain: g, blue: b }); // "grain" = verde
-const layerById = id => ({ _ref: "layer", _id: id });
-const docById   = id => ({ _ref: "document", _id: id });
+function validId(id, what = "capa") {
+  if (typeof id !== "number" || !Number.isFinite(id)) throw new Error(`ID de ${what} inválido (${id})`);
+  return id;
+}
+const layerById = id => ({ _ref: "layer", _id: validId(id) });
+const docById   = id => ({ _ref: "document", _id: validId(id, "documento") });
 const targetLayer = { _ref: "layer", _enum: "ordinal", _value: "targetEnum" };
 const channel = v => ({ _ref: "channel", _enum: "channel", _value: v });
 
@@ -60,6 +64,6 @@ function findLayer(container, id) {
 const baseName = title => String(title).replace(/\.[^./\\]+$/, "");
 
 module.exports = {
-  px, pct, deg, rgb, layerById, docById, targetLayer, channel,
+  px, pct, deg, rgb, validId, layerById, docById, targetLayer, channel,
   bp, modal, selectLayer, setVisible, lastLayerId, findLayer, baseName
 };

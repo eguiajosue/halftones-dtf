@@ -46,8 +46,8 @@ const updateHalftone = (s, typeChanged) => run("Halftones DTF: Semitono", async 
     const old = findLayer(doc, L.halftone);
     await selectLayer(L.threshold);
     const id = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
-    findLayer(doc, id).moveAbove(findLayer(doc, L.threshold));
-    old.delete();
+    await findLayer(doc, id).moveAbove(findLayer(doc, L.threshold));
+    await old.delete();
     L.halftone = id;
   } else {
     await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
@@ -66,8 +66,8 @@ const updateAll = s => run("Halftones DTF: Preset", async () => {
   await L_.setShadowBoost(s.shadow);
   await selectLayer(L.threshold);
   const id = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
-  findLayer(doc, id).moveAbove(findLayer(doc, L.threshold));
-  findLayer(doc, L.halftone).delete();
+  await findLayer(doc, id).moveAbove(findLayer(doc, L.threshold));
+  await findLayer(doc, L.halftone).delete();
   L.halftone = id;
   await refreshMask(s);
 });

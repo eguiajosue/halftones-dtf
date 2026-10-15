@@ -1,7 +1,7 @@
 const { app, constants } = require("photoshop");
 const { state, resetState } = require("../state");
 const {
-  bp, modal, px, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
+  bp, modal, px, validId, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
 } = require("./bp");
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
@@ -56,22 +56,25 @@ async function runPrep(s) {
         await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
         const artId = await lastLayerId();
         await bp({ _obj: "set", _target: [targetLayer], to: { _obj: "layer", name: "ART" } });
+        validId(artId, "ART");
         const artLayer = findLayer(work, artId);
+        if (!artLayer) throw new Error("No se encontró la capa ART");
 
         // 4) Color de prenda (al fondo)
         at("capa SHIRT COLOR");
         const shirtId = await L_.makeSolid("SHIRT COLOR", s.shirt);
-        findLayer(work, shirtId).moveBelow(artLayer);                                                  // 🔍
+        await findLayer(work, shirtId).moveBelow(artLayer);                                                  // 🔍
         checkCancel(ctx);
 
         // 5) MAP GROUP: fondo (color de KO) < arte < KO < desat < niveles < umbral < motivo
         at("MAP ART");
-        const mapArt = artLayer.duplicate();
+        const mapArt = await artLayer.duplicate();     // en UXP puede ser una promesa
+        if (!mapArt) throw new Error("No se pudo duplicar ART");
         mapArt.name = "MAP ART";
-        const mapArtId = mapArt.id;
+        const mapArtId = validId(mapArt.id, "MAP ART");
         await selectLayer(mapArtId);
         const mapBgId = await L_.makeSolid("MAP BG", s.knockoutColor);   // el arte transparente cuenta como "fondo"
-        findLayer(work, mapBgId).moveBelow(findLayer(work, mapArtId));
+        await findLayer(work, mapBgId).moveBelow(findLayer(work, mapArtId));
         await selectLayer(mapArtId);
         at("KO COLOR");
         const koId = await L_.makeSolid("KO COLOR", s.knockoutColor, "difference");
@@ -81,14 +84,18 @@ async function runPrep(s) {
         const thrId = await L_.makeThreshold("MAP THRESHOLD");
         at("capa de semitono");
         const htId = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
-        findLayer(work, htId).moveAbove(findLayer(work, thrId));
+        await findLayer(work, htId).moveAbove(findLayer(work, thrId));
         checkCancel(ctx);
         ctx.reportProgress({ value: 0.6, commandName: "Construyendo mapa de semitono" });
 
         at("agrupar MAP GROUP");
-        const members = [mapBgId, mapArtId, koId, desatId, levelsId, thrId, htId].map(id => findLayer(work, id));
+        const members = [mapBgId, mapArtId, koId, desatId, levelsId, thrId, htId].map(id => {
+          const l = findLayer(work, id);
+          if (!l) throw new Error(`Capa no encontrada (id ${id})`);
+          return l;
+        });
         const group = await work.createLayerGroup({ name: "MAP GROUP", fromLayers: members });        // 🔍
-        const mapGroupId = group.id;
+        const mapGroupId = validId(group.id, "MAP GROUP");
 
         Object.assign(state.layers, { art: artId, shirt: shirtId, mapGroup: mapGroupId, mapArt: mapArtId,
           mapBg: mapBgId, ko: koId, desat: desatId, levels: levelsId, threshold: thrId, halftone: htId });
@@ -190,7 +197,7 @@ async function applyPrep(s) {
       mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name
     });
     const copy = await layer.duplicate(out);                                                        // 🔍
-    for (const l of [...out.layers]) if (l.id !== copy.id) l.delete();
+    for (const l of [...out.layers]) if (l.id !== copy.id) await l.delete();
     await work.closeWithoutSaving();
     app.activeDocument = out;
     ctx.reportProgress({ value: 1, commandName: "Listo" });
