@@ -30,14 +30,14 @@ async function runPrep(s) {
   let work = null;
 
   try {
-    await modal("HalftonePrep: Preparar", async (ctx) => {
+    await modal("Halftones DTF: Preparar", async (ctx) => {
       // 1) Duplicar (documento de trabajo); el original nunca se toca
       work = await src.duplicate(`${baseName(src.title)} - Prep`);
       app.activeDocument = work;
       state.workDocId = work.id;
       if (work.mode !== constants.DocumentMode.RGB) await work.changeMode(constants.ChangeMode.RGB);
 
-      const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "HalftonePrep: Preparar" });
+      const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Halftones DTF: Preparar" });
       try {
         ctx.reportProgress({ value: 0.1, commandName: "Duplicando documento" });
 
@@ -111,7 +111,7 @@ async function discardWork(work) {
   const doc = work && app.documents.find(d => d.id === work.id);
   if (!doc) return;
   try {
-    await modal("HalftonePrep: Descartar", async () => { await doc.closeWithoutSaving(); });
+    await modal("Halftones DTF: Descartar", async () => { await doc.closeWithoutSaving(); });
   } catch (e) { /* ya cerrado */ }
 }
 
@@ -119,7 +119,7 @@ async function discardWork(work) {
 async function cancelPrep() {
   const src = app.documents.find(d => d.id === state.srcDocId);
   const work = app.documents.find(d => d.id === state.workDocId);
-  await modal("HalftonePrep: Cancelar", async () => {
+  await modal("Halftones DTF: Cancelar", async () => {
     if (work) await work.closeWithoutSaving();
     if (src) app.activeDocument = src;
   });
@@ -128,7 +128,7 @@ async function cancelPrep() {
 
 // ---- Aplicar -----------------------------------------------------------------
 async function applyPrep(s) {
-  await modal("HalftonePrep: Aplicar", async (ctx) => {
+  await modal("Halftones DTF: Aplicar", async (ctx) => {
     const work = getWorkDoc();
     app.activeDocument = work;
     const L = state.layers;

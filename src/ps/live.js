@@ -16,17 +16,17 @@ function validateState() {
 
 const run = (name, fn) => modal(name, async (ctx) => { validateState(); await fn(ctx); }, { history: true });
 
-const updateLevels = s => run("HalftonePrep: Niveles", async () => {
+const updateLevels = s => run("Halftones DTF: Niveles", async () => {
   await L_.setLevels(state.layers.levels, s);
   await refreshMask(s);
 });
 
-const updateShadows = s => run("HalftonePrep: Sombras", async () => {
+const updateShadows = s => run("Halftones DTF: Sombras", async () => {
   await L_.setShadowBoost(s.shadow);
   await refreshMask(s);
 });
 
-const updateColors = (s, { knockoutChanged = true } = {}) => run("HalftonePrep: Color", async () => {
+const updateColors = (s, { knockoutChanged = true } = {}) => run("Halftones DTF: Color", async () => {
   const L = state.layers;
   await L_.setSolid(L.shirt, s.shirt);
   if (knockoutChanged) {
@@ -36,10 +36,10 @@ const updateColors = (s, { knockoutChanged = true } = {}) => run("HalftonePrep: 
   }
 });
 
-const updateKnockout = s => run("HalftonePrep: Knockout", () => refreshMask(s));
+const updateKnockout = s => run("Halftones DTF: Knockout", () => refreshMask(s));
 
 // Tipo, LPI o ángulo. Si cambia el tipo se reemplaza la capa de motivo.
-const updateHalftone = (s, typeChanged) => run("HalftonePrep: Semitono", async () => {
+const updateHalftone = (s, typeChanged) => run("Halftones DTF: Semitono", async () => {
   const L = state.layers;
   const doc = app.activeDocument;
   if (typeChanged) {
@@ -56,7 +56,7 @@ const updateHalftone = (s, typeChanged) => run("HalftonePrep: Semitono", async (
 });
 
 // Aplica todos los ajustes (cambio de preset en estado ACTIVE).
-const updateAll = s => run("HalftonePrep: Preset", async () => {
+const updateAll = s => run("Halftones DTF: Preset", async () => {
   const L = state.layers;
   const doc = app.activeDocument;
   await L_.setSolid(L.shirt, s.shirt);

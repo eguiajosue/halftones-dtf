@@ -1,8 +1,8 @@
 {
   "name": "halftoneprep",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
-  "description": "Plugin UXP para Adobe Photoshop: preparación DTF/DTG con semitonos nativos",
+  "description": "Plugin UXP para Adobe Photoshop: preparaci\u00f3n DTF/DTG con semitonos nativos",
   "scripts": {
     "check": "node tools/check_native.js && node --check src/main.js",
     "tiles": "python3 tools/make_tiles.py assets/tiles",

@@ -1,35 +1,90 @@
 {
-  "id": "com.halftonesdtf.halftoneprep",
-  "name": "HalftonePrep",
-  "version": "1.0.0",
+  "id": "com.halftonesdtf.plugin",
+  "name": "Halftones DTF",
+  "version": "1.0.1",
   "main": "index.html",
   "manifestVersion": 5,
   "host": {
     "app": "PS",
     "minVersion": "23.3.0",
-    "data": { "apiVersion": 2, "loadEvent": "use" }
+    "data": {
+      "apiVersion": 2,
+      "loadEvent": "use"
+    }
   },
   "requiredPermissions": {
     "localFileSystem": "plugin",
-    "clipboard": "none",
     "allowCodeGenerationFromStrings": false
   },
   "entrypoints": [
     {
       "type": "panel",
-      "id": "mainPanel",
-      "label": { "default": "HalftonePrep" },
-      "minimumSize": { "width": 280, "height": 590 },
-      "maximumSize": { "width": 320, "height": 2000 },
-      "preferredDockedSize": { "width": 280, "height": 600 },
-      "preferredFloatingSize": { "width": 280, "height": 600 },
+      "id": "halftonesDtfPanel",
+      "label": {
+        "default": "Halftones DTF"
+      },
+      "minimumSize": {
+        "width": 280,
+        "height": 590
+      },
+      "maximumSize": {
+        "width": 320,
+        "height": 2000
+      },
+      "preferredDockedSize": {
+        "width": 280,
+        "height": 600
+      },
+      "preferredFloatingSize": {
+        "width": 280,
+        "height": 600
+      },
       "icons": [
-        { "width": 23, "height": 23, "path": "assets/icons/panel-light.png", "scale": [1, 2], "theme": ["dark", "darkest", "medium"] },
-        { "width": 23, "height": 23, "path": "assets/icons/panel-dark.png", "scale": [1, 2], "theme": ["lightest", "light"] }
+        {
+          "width": 23,
+          "height": 23,
+          "path": "assets/icons/panel-light.png",
+          "scale": [
+            1,
+            2
+          ],
+          "theme": [
+            "dark",
+            "darkest",
+            "medium"
+          ]
+        },
+        {
+          "width": 23,
+          "height": 23,
+          "path": "assets/icons/panel-dark.png",
+          "scale": [
+            1,
+            2
+          ],
+          "theme": [
+            "lightest",
+            "light"
+          ]
+        }
       ]
     }
   ],
   "icons": [
-    { "width": 24, "height": 24, "path": "assets/icons/plugin.png", "scale": [1, 2], "theme": ["all"], "species": ["pluginList"] }
+    {
+      "width": 24,
+      "height": 24,
+      "path": "assets/icons/plugin.png",
+      "scale": [
+        1,
+        2
+      ],
+      "theme": [
+        "all"
+      ],
+      "species": [
+        "pluginList"
+      ]
+    }
   ]
 }

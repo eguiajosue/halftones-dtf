@@ -37,7 +37,7 @@ async function fail(e) {
     return;
   }
   status(m);
-  console.log("HalftonePrep:", e);
+  console.log("Halftones DTF:", e);
 }
 
 function showStep() {
@@ -316,7 +316,7 @@ function bindUI() {
 
   $$("#segPreview sp-action-button").forEach(b => b.addEventListener("click", () => {
     liveOp(async () => {
-      await modal("HalftonePrep: Vista", async () => { live.validateState(); await setPreviewMode(b.dataset.mode); });
+      await modal("Halftones DTF: Vista", async () => { live.validateState(); await setPreviewMode(b.dataset.mode); });
       syncUI();
     });
   }));
@@ -344,4 +344,4 @@ async function main() {
   });
 }
 
-main().catch(e => { console.log("HalftonePrep init:", e); status(e.message); });
+main().catch(e => { console.log("Halftones DTF init:", e); status(e.message); });
