@@ -11,7 +11,12 @@ const channel = v => ({ _ref: "channel", _enum: "channel", _value: v });
 
 async function bp(descs) {
   const list = Array.isArray(descs) ? descs : [descs];
-  const res = await action.batchPlay(list, { modalBehavior: "execute" });
+  let res;
+  try {
+    res = await action.batchPlay(list, { modalBehavior: "execute" });
+  } catch (e) {
+    throw new Error(`${list.map(d => d._obj).join(",")}: ${e.message}`);
+  }
   res.forEach((r, i) => {
     if (r && r._obj === "error") throw new Error(`${list[i]._obj}: ${r.message}`);
   });

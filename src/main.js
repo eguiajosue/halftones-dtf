@@ -57,7 +57,7 @@ function lock(msg) {
   uiLocked = true;
   $("lockBanner").textContent = msg;
   $("lockBanner").classList.remove("hidden");
-  $$("#step2 sp-button, #step2 sp-action-button, #step2 sp-checkbox, #step2 sp-textfield, #step2 sp-picker")
+  $$("#step2 sp-button, #step2 sp-action-button, #step2 sp-checkbox, #step2 input, #step2 sp-picker")
     .forEach(e => setDisabled(e, true));
 }
 function unlock() {

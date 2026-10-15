@@ -1,6 +1,6 @@
 {
   "name": "halftoneprep",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "Plugin UXP para Adobe Photoshop: preparaci\u00f3n DTF/DTG con semitonos nativos",
   "scripts": {

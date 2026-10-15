@@ -28,36 +28,44 @@ async function runPrep(s) {
   state.phase = "RUNNING";
   state.srcDocId = src.id;
   let work = null;
+  let stage = "inicio";
+  const at = n => { stage = n; };
 
   try {
     await modal("Halftones DTF: Preparar", async (ctx) => {
       // 1) Duplicar (documento de trabajo); el original nunca se toca
+      at("duplicar documento");
       work = await src.duplicate(`${baseName(src.title)} - Prep`);
       app.activeDocument = work;
       state.workDocId = work.id;
       if (work.mode !== constants.DocumentMode.RGB) await work.changeMode(constants.ChangeMode.RGB);
 
+      at("historial");
       const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Halftones DTF: Preparar" });
       try {
         ctx.reportProgress({ value: 0.1, commandName: "Duplicando documento" });
 
         // 2) Redimensionar a 300 ppi y tamaño objetivo
+        at(`redimensionar (${s.widthPx}x${s.heightPx})`);
         await work.resizeImage(s.widthPx, s.heightPx, 300, constants.ResampleMethod.BICUBICAUTOMATIC);
         checkCancel(ctx);
         ctx.reportProgress({ value: 0.25, commandName: "Redimensionando" });
 
         // 3) Aplanar todo en un objeto inteligente "ART"
+        at("objeto inteligente ART");
         await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
         const artId = await lastLayerId();
         await bp({ _obj: "set", _target: [targetLayer], to: { _obj: "layer", name: "ART" } });
         const artLayer = findLayer(work, artId);
 
         // 4) Color de prenda (al fondo)
+        at("capa SHIRT COLOR");
         const shirtId = await L_.makeSolid("SHIRT COLOR", s.shirt);
         findLayer(work, shirtId).moveBelow(artLayer);                                                  // 🔍
         checkCancel(ctx);
 
         // 5) MAP GROUP: fondo (color de KO) < arte < KO < desat < niveles < umbral < motivo
+        at("MAP ART");
         const mapArt = artLayer.duplicate();
         mapArt.name = "MAP ART";
         const mapArtId = mapArt.id;
@@ -65,15 +73,19 @@ async function runPrep(s) {
         const mapBgId = await L_.makeSolid("MAP BG", s.knockoutColor);   // el arte transparente cuenta como "fondo"
         findLayer(work, mapBgId).moveBelow(findLayer(work, mapArtId));
         await selectLayer(mapArtId);
+        at("KO COLOR");
         const koId = await L_.makeSolid("KO COLOR", s.knockoutColor, "difference");
+        at("MAP DESAT / MAP LEVELS / umbral");
         const desatId = await L_.makeHueSatDesat("MAP DESAT");
         const levelsId = await L_.makeLevels("MAP LEVELS", s);
         const thrId = await L_.makeThreshold("MAP THRESHOLD");
+        at("capa de semitono");
         const htId = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
         findLayer(work, htId).moveAbove(findLayer(work, thrId));
         checkCancel(ctx);
         ctx.reportProgress({ value: 0.6, commandName: "Construyendo mapa de semitono" });
 
+        at("agrupar MAP GROUP");
         const members = [mapBgId, mapArtId, koId, desatId, levelsId, thrId, htId].map(id => findLayer(work, id));
         const group = await work.createLayerGroup({ name: "MAP GROUP", fromLayers: members });        // 🔍
         const mapGroupId = group.id;
@@ -82,6 +94,7 @@ async function runPrep(s) {
           mapBg: mapBgId, ko: koId, desat: desatId, levels: levelsId, threshold: thrId, halftone: htId });
 
         // 6) Realce de sombras (filtro inteligente) y máscara en ART
+        at("sombras y máscara");
         state.shadowOn = false;
         if (s.shadow > 0) await L_.setShadowBoost(s.shadow);
         await selectLayer(artId);
@@ -89,7 +102,9 @@ async function runPrep(s) {
                    at: channel("mask"), using: { _enum: "userMaskEnabled", _value: "revealAll" } });
 
         // 7) Primer cálculo de la máscara y vista
+        at("calcular máscara");
         await refreshMask(s);
+        at("vista");
         await setPreviewMode("shirt");
         await bp({ _obj: "select", _target: [{ _ref: "menuItemClass", _enum: "menuItemType", _value: "fitOnScreen" }] });
         ctx.reportProgress({ value: 1, commandName: "Listo" });
@@ -102,6 +117,7 @@ async function runPrep(s) {
     await discardWork(work);
     resetState();
     if (e.message === CANCELLED) return false;
+    e.message = `${e.message} [paso: ${stage}]`;
     throw e;
   }
   return true;
