@@ -1,6 +1,6 @@
 {
   "name": "open-dtf",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "Plugin UXP para Adobe Photoshop: preparación DTF/DTG con semitonos nativos",
   "scripts": {
