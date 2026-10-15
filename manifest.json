@@ -1,7 +1,7 @@
 {
   "id": "com.halftonesdtf.plugin",
-  "name": "Halftones DTF",
-  "version": "1.1.0",
+  "name": "Open-DTF",
+  "version": "1.2.0",
   "main": "index.html",
   "manifestVersion": 5,
   "host": {
@@ -21,23 +21,23 @@
       "type": "panel",
       "id": "halftonesDtfPanel",
       "label": {
-        "default": "Halftones DTF"
+        "default": "Open-DTF"
       },
       "minimumSize": {
-        "width": 280,
-        "height": 590
+        "width": 230,
+        "height": 300
       },
       "maximumSize": {
-        "width": 320,
+        "width": 2000,
         "height": 2000
       },
       "preferredDockedSize": {
-        "width": 280,
-        "height": 600
+        "width": 300,
+        "height": 640
       },
       "preferredFloatingSize": {
-        "width": 280,
-        "height": 600
+        "width": 360,
+        "height": 640
       },
       "icons": [
         {

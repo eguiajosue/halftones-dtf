@@ -46,7 +46,7 @@ ${defs.join("\n")}
   } catch (e) {
     var el = document.getElementById("statusLine");
     if (el) el.textContent = "Error de arranque: " + (e && e.message ? e.message : e);
-    console.log("Halftones DTF boot:", e);
+    console.log("Open-DTF boot:", e);
   }
 })(require);
 `;

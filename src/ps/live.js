@@ -30,7 +30,7 @@ async function replaceHalftone(s) {
 const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask"];
 
 function sync(s, kinds) {
-  return modal("Halftones DTF: Ajuste en vivo", async () => {
+  return modal("Open-DTF: Ajuste en vivo", async () => {
     validateState();
     const L = state.layers;
     if (kinds.has("shirt")) await L_.setSolid(L.shirt, s.shirt);

@@ -1,96 +1,129 @@
-/* Halftones DTF — panel UXP. Sin "gap" (UXP no lo soporta en flex): se usan márgenes. */
+/* Open-DTF — estilo minimalista para panel UXP (Photoshop).
+   - Colores heredados del tema del host (claro u oscuro) con respaldo; superficies y líneas
+     con alfa neutro, así funciona en cualquier tema.
+   - Sin "gap" ni "grid" (UXP): flex + flex-wrap + márgenes. Todo es fluido, sin anchos fijos. */
+
 :root {
-  --bg: #323232;
-  --card: #3a3a3a;
-  --card-border: #474747;
-  --text: #e6e6e6;
-  --muted: #a3a3a3;
-  --input: #262626;
-  --input-border: #555;
-  --accent: #378ef0;
-  --warn: #e68619;
-  --error: #e34850;
-  --ok: #2d9d78;
+  --bg: var(--uxp-host-background-color, #2b2b2b);
+  --fg: var(--uxp-host-text-color, #ebe9e4);
+  --muted: var(--uxp-host-text-color-secondary, #9d9b96);
+  --surface: rgba(128, 128, 128, 0.09);
+  --surface-2: rgba(128, 128, 128, 0.16);
+  --line: rgba(128, 128, 128, 0.30);
+  --line-soft: rgba(128, 128, 128, 0.18);
+  --font: "Geist Sans", "SF Pro Display", "Segoe UI", "Helvetica Neue", sans-serif;
+  --serif: "Instrument Serif", "Newsreader", "Playfair Display", Georgia, serif;
+  --mono: "Geist Mono", "SF Mono", "Consolas", "Menlo", monospace;
 }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
-body { margin: 0; padding: 0; color: var(--text); font-size: 12px; }
-.app { display: flex; flex-direction: column; height: 100%; }
+body { margin: 0; padding: 0; color: var(--fg); font-family: var(--font); font-size: 12px; line-height: 1.45; }
+.app { display: flex; flex-direction: column; height: 100%; min-width: 0; }
 .hidden { display: none !important; }
-.grow { flex: 1; }
+.grow { flex: 1 1 0; }
 .minw0 { min-width: 0; }
 .full { width: 100%; }
 
-/* Cabecera */
-.hdr { display: flex; flex-direction: row; align-items: center; padding: 8px 10px 4px 10px; }
-.hdr-title { font-size: 13px; font-weight: bold; flex: 1; }
-.badge { font-size: 10px; color: var(--muted); border: 1px solid var(--card-border); border-radius: 9px; padding: 1px 8px; }
-.badge.active { color: #fff; background: var(--accent); border-color: var(--accent); }
-.busy { font-size: 10px; color: var(--accent); margin-right: 8px; }
+/* ---------- Cabecera ---------- */
+.hdr { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; padding: 12px 14px 6px 14px; }
+.brand { display: flex; flex-direction: row; align-items: center; flex: 1 1 auto; margin-right: 8px; }
+.mark { display: flex; flex-direction: row; align-items: flex-end; margin-right: 8px; }
+.mark i { display: block; background: var(--fg); border-radius: 50%; margin-right: 2px; }
+.mark i:nth-child(1) { width: 4px; height: 4px; }
+.mark i:nth-child(2) { width: 7px; height: 7px; }
+.mark i:nth-child(3) { width: 10px; height: 10px; margin-right: 0; }
+.wordmark { font-size: 18px; letter-spacing: -0.02em; line-height: 1; }
+.wordmark em { font-family: var(--serif); font-style: italic; font-size: 21px; letter-spacing: -0.03em; }
+.hdr-right { display: flex; flex-direction: row; align-items: center; }
+.hdr-right > * { margin-left: 4px; }
 
-/* Avisos */
-.banner { margin: 4px 10px; padding: 6px 8px; border-radius: 4px; font-size: 11px; background: #2c3e50; color: var(--text); }
-.banner.warn { background: #5c3d12; color: #ffd8a8; }
-.banner.error { background: #5a2226; color: #ffc9cc; }
-.banner.ok { background: #1f4a3c; color: #c3f0e0; }
+/* Etiquetas (tags): pastel muy suave, mayúsculas pequeñas */
+.tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+       color: var(--muted); border: 1px solid var(--line); border-radius: 9px; padding: 1px 8px; white-space: nowrap; }
+.tag.active { color: var(--bg); background: var(--fg); border-color: var(--fg); }
+.tag-green { color: #346538; background: #EDF3EC; border-color: #EDF3EC; }
+.tag-blue { color: #1F6C9F; background: #E1F3FE; border-color: #E1F3FE; }
 
-/* Zona desplazable y tarjetas */
-.scroll { flex: 1; overflow-y: auto; padding-bottom: 6px; }
-.card { background: var(--card); border: 1px solid var(--card-border); border-radius: 6px; margin: 6px 10px; padding: 8px 10px; }
-.card-head { display: flex; flex-direction: row; align-items: center; justify-content: space-between; }
-.card-title { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 6px; }
-.card-head .card-title { margin-bottom: 0; }
-.sub { font-size: 11px; color: var(--text); margin: 10px 0 2px 0; }
-.hint { font-size: 11px; color: var(--muted); margin: 4px 0; }
-.hint-inline { color: var(--muted); font-size: 10px; }
-.link { color: var(--accent); font-size: 11px; cursor: pointer; }
-.live-dot { font-size: 9px; color: var(--ok); border: 1px solid var(--ok); border-radius: 8px; padding: 0 6px; }
+/* ---------- Avisos ---------- */
+.banner { margin: 6px 14px 0 14px; padding: 7px 10px; border: 1px solid var(--line); border-left-width: 3px;
+          border-radius: 4px; font-size: 11px; background: var(--surface); color: var(--fg); }
+.banner.warn { border-left-color: #956400; background: rgba(251, 243, 219, 0.10); }
+.banner.error { border-left-color: #9F2F2D; background: rgba(253, 235, 236, 0.10); }
+.banner.ok { border-left-color: #346538; background: rgba(237, 243, 236, 0.10); }
 
-/* Filas */
-.row { display: flex; flex-direction: row; align-items: center; margin: 4px 0; }
+/* ---------- Zona desplazable y tarjetas fluidas ---------- */
+.scroll { flex: 1 1 0; overflow-y: auto; padding: 4px 8px 10px 8px; min-height: 0; }
+.cards, .step { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; flex: 1 1 100%; }
+.slot { flex: 1 1 250px; min-width: 0; padding: 6px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.card-head { display: flex; flex-direction: row; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+
+/* Texto de apoyo (componentes Spectrum: sp-detail / sp-body) */
+.eyebrow { display: block; font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.card-head .eyebrow { margin-bottom: 0; }
+.sub { display: block; font-size: 11px; color: var(--fg); margin: 12px 0 2px 0; }
+.hint { display: block; font-size: 11px; color: var(--muted); margin: 4px 0; }
+.hint-inline { font-size: 10px; color: var(--muted); margin-left: 4px; }
+.link { color: var(--fg); font-size: 11px; cursor: pointer; border-bottom: 1px solid var(--line); }
+.link:hover { border-bottom-color: var(--fg); }
+sp-divider { margin: 10px 0 0 0; }
+.check { margin: 4px 0; }
+
+/* ---------- Filas y campos ---------- */
+.row { display: flex; flex-direction: row; align-items: center; margin: 4px 0; min-width: 0; }
 .row > * { margin-right: 6px; }
 .row > *:last-child { margin-right: 0; }
-.times { color: var(--muted); }
-.unit { width: 64px; }
+.row.wrap { flex-wrap: wrap; }
+.times { color: var(--muted); font-family: var(--mono); }
+.unit { width: 64px; flex: none; }
 
-/* Campos */
-input[type="text"] {
-  background: var(--input); color: var(--text); border: 1px solid var(--input-border);
-  border-radius: 4px; padding: 4px 6px; font-size: 12px; min-width: 0; width: 100%;
-}
-input[type="text"]:focus { border-color: var(--accent); }
-input.num { width: 52px; flex: none; text-align: right; }
-.field { display: flex; flex-direction: column; flex: 1 1 0; }
-.field-lbl { font-size: 9px; color: var(--muted); margin-bottom: 2px; }
+input[type="text"] { background: var(--surface-2); color: var(--fg); border: 1px solid var(--line-soft); border-radius: 4px;
+                     padding: 5px 7px; font-family: var(--mono); font-size: 11px; min-width: 0; width: 100%; }
+input[type="text"]:focus { border-color: var(--fg); }
+input.num { width: 54px; flex: none; text-align: right; }
+.field { display: flex; flex-direction: column; flex: 1 1 56px; min-width: 0; }
+.field-lbl { font-size: 9px; color: var(--muted); letter-spacing: 0.04em; margin-bottom: 2px; }
 
-/* Controles segmentados */
-.seg { display: flex; flex-direction: row; border: 1px solid var(--input-border); border-radius: 4px; margin: 4px 0; overflow: hidden; }
-.seg-btn { flex: 1; text-align: center; padding: 5px 2px; font-size: 11px; color: var(--text); background: var(--input); cursor: pointer; border-right: 1px solid var(--input-border); }
+kbd { font-family: var(--mono); font-size: 9px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface);
+      padding: 0 4px; margin-right: 2px; }
+
+/* ---------- Controles segmentados: activo = colores invertidos ---------- */
+.seg { display: flex; flex-direction: row; border: 1px solid var(--line); border-radius: 6px; margin: 6px 0; overflow: hidden; }
+.seg-btn { flex: 1 1 0; min-width: 0; text-align: center; padding: 6px 2px; font-size: 11px; color: var(--fg);
+           cursor: pointer; border-right: 1px solid var(--line-soft); white-space: nowrap; overflow: hidden; }
 .seg-btn:last-child { border-right: none; }
-.seg-btn:hover { background: #303030; }
-.seg-btn.active { background: var(--accent); color: #fff; }
-.seg.disabled .seg-btn { opacity: 0.45; }
+.seg-btn:hover { background: var(--surface-2); }
+.seg-btn.active { background: var(--fg); color: var(--bg); }
 
-/* Colores */
-.colors { margin-top: 8px; }
-.color { display: flex; flex-direction: column; align-items: center; }
-.sw { width: 40px; height: 26px; border: 2px solid #777; border-radius: 4px; cursor: pointer; }
-.sw:hover { border-color: var(--accent); }
-.color-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
+/* ---------- Muestras de color ---------- */
+.colors { margin-top: 10px; align-items: flex-start; }
+.color { display: flex; flex-direction: column; align-items: center; flex: none; }
+.sw { width: 42px; height: 28px; border: 1px solid var(--fg); border-radius: 4px; cursor: pointer; }
+.sw:hover { border-width: 2px; }
+.color-lbl { font-size: 9px; color: var(--muted); letter-spacing: 0.04em; margin-top: 3px; }
 
-/* Sliders */
-.slider { position: relative; height: 22px; margin: 2px 7px; }
-.slider .track { position: absolute; left: 0; right: 0; top: 9px; height: 4px; background: #555; border-radius: 2px; }
-.slider .track.grad { background: #555; background-image: linear-gradient(to right, #000, #fff); }
-.slider .fill { position: absolute; top: 9px; height: 4px; background: var(--accent); border-radius: 2px; }
-.slider .track.grad + .fill { background: transparent; border-top: 1px solid var(--accent); border-bottom: 1px solid var(--accent); height: 2px; }
-.slider .handle { position: absolute; top: 3px; width: 12px; height: 16px; margin-left: -6px; background: #f0f0f0; border: 1px solid #222; border-radius: 3px; cursor: ew-resize; }
-.slider .handle.gamma { background: #8a8a8a; }
+/* ---------- Sliders: línea fina, tirador sólido ---------- */
+.slider { position: relative; height: 22px; margin: 2px 6px; }
+.slider .track { position: absolute; left: 0; right: 0; top: 10px; height: 2px; background: var(--line); border-radius: 1px; }
+.slider .track.grad { background-image: linear-gradient(to right, #000, #fff); height: 4px; top: 9px; border: 1px solid var(--line); }
+.slider .fill { position: absolute; top: 10px; height: 2px; background: var(--fg); border-radius: 1px; }
+.slider .track.grad + .fill { top: 15px; height: 2px; }
+.slider .handle { position: absolute; top: 3px; width: 10px; height: 16px; margin-left: -5px; background: var(--fg);
+                  border: 2px solid var(--bg); border-radius: 3px; cursor: ew-resize; }
+.slider .handle.gamma { background: var(--muted); }
 
-/* Pie */
-.footer { display: flex; flex-direction: row; padding: 8px 10px; border-top: 1px solid var(--card-border); }
+/* ---------- Pie de acciones ---------- */
+.footer { display: flex; flex-direction: row; padding: 10px 14px; border-top: 1px solid var(--line-soft); }
 #btnCancel { margin-right: 8px; }
 
-/* Bloqueado */
-.locked { opacity: 0.45; }
+/* ---------- Bloqueado ---------- */
+.locked { opacity: 0.4; }
+
+/* ---------- Ajustes por ancho (si el host soporta media queries) ---------- */
+@media (max-width: 260px) {
+  .hdr { padding: 10px 10px 4px 10px; }
+  .scroll { padding: 2px 4px 8px 4px; }
+  .seg-btn { font-size: 10px; }
+  .wordmark { font-size: 16px; }
+}

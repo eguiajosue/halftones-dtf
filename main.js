@@ -828,7 +828,7 @@ async function replaceHalftone(s) {
 const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask"];
 
 function sync(s, kinds) {
-  return modal("Halftones DTF: Ajuste en vivo", async () => {
+  return modal("Open-DTF: Ajuste en vivo", async () => {
     validateState();
     const L = state.layers;
     if (kinds.has("shirt")) await L_.setSolid(L.shirt, s.shirt);
@@ -928,7 +928,7 @@ async function runPrep(s) {
   const at = n => { stage = n; };
 
   try {
-    await modal("Halftones DTF: Preparar", async (ctx) => {
+    await modal("Open-DTF: Preparar", async (ctx) => {
       // 1) Duplicar (documento de trabajo); el original nunca se toca
       at("duplicar documento");
       work = await src.duplicate(`${baseName(src.title)} - Prep`);
@@ -937,7 +937,7 @@ async function runPrep(s) {
       if (work.mode !== constants.DocumentMode.RGB) await work.changeMode(constants.ChangeMode.RGB);
 
       at("historial");
-      const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Halftones DTF: Preparar" });
+      const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Open-DTF: Preparar" });
       try {
         ctx.reportProgress({ value: 0.1, commandName: "Duplicando documento" });
 
@@ -1026,7 +1026,7 @@ async function discardWork(work) {
   const doc = work && app.documents.find(d => d.id === work.id);
   if (!doc) return;
   try {
-    await modal("Halftones DTF: Descartar", async () => { await doc.closeWithoutSaving(); });
+    await modal("Open-DTF: Descartar", async () => { await doc.closeWithoutSaving(); });
   } catch (e) { /* ya cerrado */ }
 }
 
@@ -1034,7 +1034,7 @@ async function discardWork(work) {
 async function cancelPrep() {
   const src = app.documents.find(d => d.id === state.srcDocId);
   const work = app.documents.find(d => d.id === state.workDocId);
-  await modal("Halftones DTF: Cancelar", async () => {
+  await modal("Open-DTF: Cancelar", async () => {
     if (work) await work.closeWithoutSaving();
     if (src) app.activeDocument = src;
   });
@@ -1043,7 +1043,7 @@ async function cancelPrep() {
 
 // ---- Aplicar -----------------------------------------------------------------
 async function applyPrep(s) {
-  await modal("Halftones DTF: Aplicar", async (ctx) => {
+  await modal("Open-DTF: Aplicar", async (ctx) => {
     const work = getWorkDoc();
     app.activeDocument = work;
     const L = state.layers;
@@ -1224,7 +1224,7 @@ const { action, core } = require("photoshop");
 // Selector de color nativo de Photoshop. Devuelve {r,g,b} o null si se cancela.
 async function pickColor(initial) {
   const res = await core.executeAsModal(() => action.batchPlay([{
-    _obj: "showColorPicker", context: "Halftones DTF",
+    _obj: "showColorPicker", context: "Open-DTF",
     color: { _obj: "RGBColor", red: initial.r, grain: initial.g, blue: initial.b }
   }], {}), { commandName: "Elegir color" });
   const r = res && res[0];
@@ -1401,6 +1401,6 @@ module.exports = { debounce, createQueue, clamp };
   } catch (e) {
     var el = document.getElementById("statusLine");
     if (el) el.textContent = "Error de arranque: " + (e && e.message ? e.message : e);
-    console.log("Halftones DTF boot:", e);
+    console.log("Open-DTF boot:", e);
   }
 })(require);
