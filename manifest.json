@@ -1,0 +1,25 @@
+{
+  "manifestVersion": 5,
+  "id": "com.halftonesdtf.plugin",
+  "name": "Halftones DTF",
+  "version": "0.1.0",
+  "main": "index.html",
+  "host": {
+    "app": "PS",
+    "minVersion": "24.2.0"
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "halftonesPanel",
+      "label": { "default": "Halftones DTF" },
+      "minimumSize": { "width": 230, "height": 200 },
+      "maximumSize": { "width": 2000, "height": 2000 },
+      "preferredDockedSize": { "width": 300, "height": 400 },
+      "preferredFloatingSize": { "width": 450, "height": 500 }
+    }
+  ],
+  "requiredPermissions": {
+    "localFileSystem": "request"
+  }
+}

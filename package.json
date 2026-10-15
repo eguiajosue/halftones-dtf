@@ -1,0 +1,9 @@
+{
+  "name": "halftones-dtf",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plugin UXP para Adobe Photoshop: halftones para impresión DTF",
+  "scripts": {
+    "package": "node scripts/package.js"
+  }
+}
