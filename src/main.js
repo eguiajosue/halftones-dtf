@@ -28,6 +28,13 @@ const pickerIndex = el => (el.selectedIndex >= 0 ? el.selectedIndex : 0);
 const setPicker = (el, i) => { el.selectedIndex = i; };
 const num = (el, d) => { const v = parseFloat(el.value); return Number.isFinite(v) ? v : d; };
 
+const setHidden = (el, hidden) => (hidden ? el.classList.add("hidden") : el.classList.remove("hidden"));
+const setActive = (el, on) => (on ? el.classList.add("active") : el.classList.remove("active"));
+const setDisabled = (el, on) => (on ? el.setAttribute("disabled", "") : el.removeAttribute("disabled"));
+
+// Tamaño del lienzo en px (según versión, width/height son número o UnitValue)
+const dimPx = v => (typeof v === "number" ? v : v && typeof v.as === "function" ? v.as("px") : Number(v && v.value !== undefined ? v.value : v));
+
 function status(msg) { $("statusLine").textContent = msg || ""; }
 async function fail(e) {
   const m = e && e.message ? e.message : String(e);
@@ -42,8 +49,8 @@ async function fail(e) {
 
 function showStep() {
   const active = state.phase === "ACTIVE";
-  $("step1").classList.toggle("hidden", active);
-  $("step2").classList.toggle("hidden", !active);
+  setHidden($("step1"), active);
+  setHidden($("step2"), !active);
 }
 
 function lock(msg) {
@@ -51,7 +58,7 @@ function lock(msg) {
   $("lockBanner").textContent = msg;
   $("lockBanner").classList.remove("hidden");
   $$("#step2 sp-button, #step2 sp-action-button, #step2 sp-checkbox, #step2 sp-textfield, #step2 sp-picker")
-    .forEach(e => e.setAttribute("disabled", ""));
+    .forEach(e => setDisabled(e, true));
 }
 function unlock() {
   if (!uiLocked) return;
@@ -64,19 +71,38 @@ function resetToIdle() {
   resetState();
   unlock();
   showStep();
-  updateCurrentPrintSize();
+  updateCurrentPrintSize(true);
 }
 
 // ---------- tamaño actual ----------
 function currentDoc() { try { return app.activeDocument; } catch (e) { return null; } }
 
-function updateCurrentPrintSize() {
+let sizeSig = null;
+
+function updateCurrentPrintSize(force) {
   const doc = currentDoc();
-  $("btnRun").toggleAttribute("disabled", !doc);
-  if (!doc) { $("lblCurrentSize").textContent = "Tamaño actual a 300 ppi: —"; return; }
-  const w = fromPx(doc.width, unit), h = fromPx(doc.height, unit);
+  setDisabled($("btnRun"), !doc);
+  if (!doc) {
+    $("lblCurrentSize").textContent = "Tamaño actual a 300 ppi: —";
+    $("inW").value = ""; $("inH").value = ""; sizeSig = null;
+    return;
+  }
+  const wpx = dimPx(doc.width), hpx = dimPx(doc.height);
+  const w = fromPx(wpx, unit), h = fromPx(hpx, unit);
   $("lblCurrentSize").textContent = `Tamaño actual a 300 ppi: ${w} × ${h} ${unit}`;
-  if (!$("inW").value) { $("inW").value = w; $("inH").value = h; }
+  // Valor inicial = tamaño del lienzo; solo se reescribe si cambia el documento, su tamaño o la unidad
+  const sig = `${doc.id}:${wpx}x${hpx}:${unit}`;
+  if (force || sig !== sizeSig) { $("inW").value = w; $("inH").value = h; sizeSig = sig; }
+}
+
+// Edición proporcional: cambiar un lado recalcula el otro con la proporción del lienzo
+function linkSize(from) {
+  const doc = currentDoc(); if (!doc) return;
+  const ratio = dimPx(doc.height) / dimPx(doc.width);
+  const v = parseFloat(String($(from).value).replace(",", "."));
+  if (!Number.isFinite(v) || v <= 0) return;
+  if (from === "inW") $("inH").value = +(v * ratio).toFixed(3);
+  else $("inW").value = +(v / ratio).toFixed(3);
 }
 
 function updateLpiLabel() {
@@ -103,7 +129,7 @@ function syncUI() {
   setPicker($("radCleanup"), Math.max(0, CLEANUPS.indexOf(S.cleanup)));
   $("chkDefringe").checked = S.defringe;
   $("chkNativeFinal").checked = S.nativeFinal;
-  $$("#segPreview sp-action-button").forEach(b => b.classList.toggle("active", b.dataset.mode === state.previewMode));
+  $$("#segPreview sp-action-button").forEach(b => setActive(b, b.dataset.mode === state.previewMode));
   updateLpiLabel();
 }
 
@@ -157,11 +183,12 @@ async function onSwatch(key) {
 // ---------- presets ----------
 async function refreshPresets(selected) {
   const names = await presets.list();
-  const menu = $("presetPicker").querySelector("sp-menu");
-  menu.innerHTML = "";
-  names.forEach(n => { const it = document.createElement("sp-menu-item"); it.textContent = n; menu.appendChild(it); });
   const idx = Math.max(0, names.indexOf(selected || prefs.get("lastPreset", "Default")));
+  // Se recrea el picker completo (con sus items) para que UXP lo renderice bien
+  $("presetHolder").innerHTML = '<sp-picker id="presetPicker" class="grow" label="Preset"><sp-menu slot="options">' +
+    names.map(n => `<sp-menu-item>${n.replace(/[<&]/g, "")}</sp-menu-item>`).join("") + "</sp-menu></sp-picker>";
   $("presetPicker").selectedIndex = idx;
+  $("presetPicker").addEventListener("change", onPresetChange);
   return names[idx];
 }
 const currentPresetName = () => {
@@ -196,7 +223,7 @@ function targetSize() {
   const doc = currentDoc();
   let w = num($("inW"), 0), h = num($("inH"), 0);
   let widthPx = toPx(w, unit), heightPx = toPx(h, unit);
-  if (!widthPx || !heightPx) { widthPx = doc.width; heightPx = doc.height; }   // 0 o vacío: tamaño actual
+  if (!widthPx || !heightPx) { widthPx = dimPx(doc.width); heightPx = dimPx(doc.height); }   // 0 o vacío: tamaño actual
   return { widthPx, heightPx };
 }
 
@@ -220,8 +247,7 @@ async function onApply() {
   try {
     await pipeline.applyPrep(S);
     resetToIdle();
-    $("inW").value = ""; $("inH").value = "";
-    updateCurrentPrintSize();
+    updateCurrentPrintSize(true);
   } catch (e) {
     if (e.message === "CANCELLED") return status("Cancelado.");
     await fail(e);
@@ -239,17 +265,11 @@ function bindUI() {
   $("btnUnit").addEventListener("change", () => {
     unit = ["in", "cm", "mm"][pickerIndex($("btnUnit"))];
     prefs.set("unit", unit);
-    $("inW").value = ""; $("inH").value = "";
-    updateCurrentPrintSize(); updateLpiLabel();
+    updateCurrentPrintSize(true); updateLpiLabel();
   });
-  $("inW").addEventListener("input", () => {
-    const doc = currentDoc(); if (!doc) return;
-    $("inH").value = +(num($("inW"), 0) * doc.height / doc.width).toFixed(3);
-  });
-  $("inH").addEventListener("input", () => {
-    const doc = currentDoc(); if (!doc) return;
-    $("inW").value = +(num($("inH"), 0) * doc.width / doc.height).toFixed(3);
-  });
+  for (const id of ["inW", "inH"]) {
+    for (const ev of ["input", "change"]) $(id).addEventListener(ev, () => linkSize(id));
+  }
   $("chkHalftone").addEventListener("change", () => { S.halftone = $("chkHalftone").checked; });
   $("selHtType").addEventListener("change", () => { S.htType = HT_TYPES[pickerIndex($("selHtType"))]; });
   const lpiDebounce = debounce(() => { S.lpi = clamp(num($("inLpi"), 30), 5, 234); updateLpiLabel(); }, 250);
@@ -268,7 +288,6 @@ function bindUI() {
     syncUI();
     liveOp(() => live.updateColors(S));
   }));
-  $("presetPicker").addEventListener("change", onPresetChange);
   $("btnPresetSave").addEventListener("click", async () => {
     let name = "";
     const ok = await askText("dlgPreset", "dlgPresetOk", "dlgPresetCancel", () => { $("dlgPresetName").value = ""; });
@@ -328,20 +347,29 @@ function bindUI() {
   $("btnApply").addEventListener("click", onApply);
 }
 
+async function step(name, fn) {
+  try { await fn(); } catch (e) { console.log("init " + name + ":", e); status(`Error al iniciar (${name}): ${e.message}`); }
+}
+
 async function main() {
-  bindUI();
-  setPicker($("btnUnit"), ["in", "cm", "mm"].indexOf(unit));
-  await refreshPresets();
-  Object.assign(S, await presets.load(currentPresetName()));
-  syncUI();
-  showStep();
-  updateCurrentPrintSize();
-  events.init({
-    onIdleChange: updateCurrentPrintSize,
+  await step("ui", bindUI);
+  await step("unidad", () => setPicker($("btnUnit"), ["in", "cm", "mm"].indexOf(unit)));
+  await step("presets", async () => {
+    await refreshPresets();
+    Object.assign(S, await presets.load(currentPresetName()));
+  });
+  await step("sync", () => { syncUI(); showStep(); });
+  await step("tamaño", () => updateCurrentPrintSize(true));
+  await step("eventos", () => events.init({
+    onIdleChange: () => updateCurrentPrintSize(),
     onWorkClosed: () => { status("El documento de trabajo se cerró."); resetToIdle(); },
     onLock: lock,
     onUnlock: unlock
-  });
+  }));
 }
+
+// Cualquier error no controlado se muestra en el panel (facilita el diagnóstico en Photoshop)
+window.addEventListener("error", e => status(`Error: ${e.message}`));
+window.addEventListener("unhandledrejection", e => status(`Error: ${e.reason && e.reason.message ? e.reason.message : e.reason}`));
 
 main().catch(e => { console.log("Halftones DTF init:", e); status(e.message); });

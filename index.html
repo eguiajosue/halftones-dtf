@@ -9,7 +9,7 @@
   <div id="statusLine" class="status"></div>
 
   <div class="row">
-    <sp-picker id="presetPicker" class="grow" label="Preset"><sp-menu slot="options"></sp-menu></sp-picker>
+    <div id="presetHolder" class="grow"></div>
     <sp-action-button id="btnPresetSave" title="Guardar preset">Guardar</sp-action-button>
     <sp-action-button id="btnPresetDel" title="Borrar preset">Borrar</sp-action-button>
   </div>
@@ -18,9 +18,9 @@
   <div id="step1">
     <sp-body id="lblCurrentSize" class="muted">Tamaño actual a 300 ppi: —</sp-body>
     <div class="row">
-      <sp-textfield id="inW" type="number" class="grow"></sp-textfield>
+      <sp-textfield id="inW" class="grow"></sp-textfield>
       <span>×</span>
-      <sp-textfield id="inH" type="number" class="grow"></sp-textfield>
+      <sp-textfield id="inH" class="grow"></sp-textfield>
       <sp-picker id="btnUnit" size="s"><sp-menu slot="options">
         <sp-menu-item>in</sp-menu-item><sp-menu-item>cm</sp-menu-item><sp-menu-item>mm</sp-menu-item>
       </sp-menu></sp-picker>
@@ -35,11 +35,11 @@
     </div>
     <div class="row">
       <label class="grow">Frecuencia / pulgada <span id="lblLpi" class="muted"></span></label>
-      <sp-textfield id="inLpi" type="number" class="num"></sp-textfield>
+      <sp-textfield id="inLpi" class="num"></sp-textfield>
     </div>
     <div class="row">
       <label class="grow">Ángulo (°)</label>
-      <sp-textfield id="inAngle" type="number" class="num"></sp-textfield>
+      <sp-textfield id="inAngle" class="num"></sp-textfield>
     </div>
 
     <sp-checkbox data-bind="knockout" checked>Knockout de color</sp-checkbox>
@@ -68,16 +68,16 @@
     <label>Niveles de entrada</label>
     <div id="lvlIn" class="slider"></div>
     <div class="row nums">
-      <sp-textfield id="inBlack" type="number"></sp-textfield>
-      <sp-textfield id="inGamma" type="number"></sp-textfield>
-      <sp-textfield id="inWhite" type="number"></sp-textfield>
+      <sp-textfield id="inBlack"></sp-textfield>
+      <sp-textfield id="inGamma"></sp-textfield>
+      <sp-textfield id="inWhite"></sp-textfield>
     </div>
 
     <label>Niveles de salida (forzar semitonos)</label>
     <div id="lvlOut" class="slider"></div>
     <div class="row nums">
-      <sp-textfield id="inOutBlack" type="number"></sp-textfield>
-      <sp-textfield id="inOutWhite" type="number"></sp-textfield>
+      <sp-textfield id="inOutBlack"></sp-textfield>
+      <sp-textfield id="inOutWhite"></sp-textfield>
     </div>
 
     <label>Realce de sombras: <span id="lblShadow">0</span></label>
@@ -111,8 +111,8 @@
         <sp-menu-item>Redondo</sp-menu-item><sp-menu-item>Línea</sp-menu-item>
         <sp-menu-item>Diamante</sp-menu-item><sp-menu-item>Elipse</sp-menu-item>
       </sp-menu></sp-picker>
-      <div class="row"><label class="grow">Frecuencia (LPI)</label><sp-textfield id="dlgLpi" type="number" class="num"></sp-textfield></div>
-      <div class="row"><label class="grow">Ángulo (°)</label><sp-textfield id="dlgAngle" type="number" class="num"></sp-textfield></div>
+      <div class="row"><label class="grow">Frecuencia (LPI)</label><sp-textfield id="dlgLpi" class="num"></sp-textfield></div>
+      <div class="row"><label class="grow">Ángulo (°)</label><sp-textfield id="dlgAngle" class="num"></sp-textfield></div>
       <div class="row">
         <sp-button id="dlgHtCancel" variant="secondary" class="grow">Cancelar</sp-button>
         <sp-button id="dlgHtOk" variant="cta" class="grow">Aceptar</sp-button>
