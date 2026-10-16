@@ -48,7 +48,8 @@
     "q9": "I found a bug, what do I do?", "a9": "Open an <a href=\"https://github.com/eguiajosue/halftones-dtf/issues\" rel=\"noopener\">issue on GitHub</a> with your Photoshop version, the panel message and, if you can, a screenshot.",
     "ct.title": "Built in the open. Improve it with us.",
     "ct.repo": "Source code", "ct.issues": "Report a problem or suggest an idea", "ct.guide": "Contributing guide",
-    "foot.l": "MIT license · Not affiliated with Adobe. Photoshop is a trademark of Adobe."
+    "foot.l": "MIT license · Not affiliated with Adobe. Photoshop is a trademark of Adobe.",
+    "foot.c": "3D model “<a href=\"https://sketchfab.com/3d-models/t-shirt-3d-model-free-408000a9975a4c34866b42dfaca4fa75\" rel=\"noopener\">T-SHIRT 3D Model Free</a>” by <a href=\"https://sketchfab.com/MohammadRajabloo\" rel=\"noopener\">Mohammad Rajabloo</a>, <a href=\"http://creativecommons.org/licenses/by/4.0/\" rel=\"noopener\">CC BY 4.0</a> license. Modified: repaired and simplified for the web."
   };
 
   var ES = {};
