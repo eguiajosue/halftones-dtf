@@ -14,6 +14,12 @@ const onScrollNav = () => nav.classList.toggle("scrolled", window.scrollY > 24);
 addEventListener("scroll", onScrollNav, { passive: true });
 onScrollNav();
 
+// La historia se imprime sobre la plancha negra (K): el fondo de la página cambia cuando ocupa la pantalla
+const story = $(".story");
+new IntersectionObserver((entries) => {
+  for (const e of entries) document.body.classList.toggle("dark", e.isIntersecting);
+}, { rootMargin: "-50% 0px -50% 0px" }).observe(story);
+
 const steps = $$(".step");
 const io = new IntersectionObserver((entries) => {
   for (const e of entries) e.target.classList.toggle("on", e.isIntersecting);
@@ -62,7 +68,7 @@ function art(u, v, o) {
   const d = Math.sqrt(dx * dx + dy * dy);
   if (d <= R) {
     const t = (v - (cy - R)) / (2 * R);                     // 0 abajo · 1 arriba
-    r = 1; g = 0.22 + 0.62 * t; b = 0.42 - 0.2 * t;
+    r = 1; g = 0.16 + 0.5 * t; b = 0.4 - 0.2 * t;      // naranja a rojo: legible sobre papel y sobre negro
     if (v < cy) {                                           // franjas del sol
       const k = (cy - v) / R, period = 0.052, gap = 0.008 + 0.03 * k;
       if ((cy - v) % period < gap) { r = g = b = 0; }

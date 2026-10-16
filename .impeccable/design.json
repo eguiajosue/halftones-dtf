@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-16T04:09:17Z",
+  "title": "Design System: Open-DTF",
+  "extensions": {
+    "colorMeta": {
+      "ink-k": {
+        "role": "neutral",
+        "displayName": "Black Plate Ink",
+        "canonical": "oklch(15.0% 0.002 286)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#262627",
+          "#454546",
+          "#666667",
+          "#89898a",
+          "#aeaeaf",
+          "#d1d1d2",
+          "#eeeef0"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Coated Cool Paper",
+        "canonical": "oklch(96.9% 0.003 128)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#262725",
+          "#444544",
+          "#656665",
+          "#888988",
+          "#adaeac",
+          "#d0d1cf",
+          "#eeefed"
+        ]
+      },
+      "paper-shade": {
+        "role": "neutral",
+        "displayName": "Paper Shade",
+        "canonical": "oklch(93.4% 0.006 129)",
+        "tonalRamp": [
+          "#0a0c09",
+          "#262724",
+          "#444642",
+          "#656763",
+          "#888a86",
+          "#adafab",
+          "#d0d2ce",
+          "#edefeb"
+        ]
+      },
+      "cyan-ink": {
+        "role": "primary",
+        "displayName": "Process Cyan",
+        "canonical": "oklch(70.8% 0.149 234)",
+        "tonalRamp": [
+          "#000c2a",
+          "#002b51",
+          "#004c7b",
+          "#0070a8",
+          "#0095d3",
+          "#4bbaf3",
+          "#80ddff",
+          "#a8faff"
+        ]
+      },
+      "magenta-ink": {
+        "role": "secondary",
+        "displayName": "Process Magenta",
+        "canonical": "oklch(61.6% 0.253 355)",
+        "tonalRamp": [
+          "#2f000e",
+          "#5c002a",
+          "#8c004a",
+          "#bf006c",
+          "#ef1e90",
+          "#ff65b4",
+          "#ff95d7",
+          "#ffbbf4"
+        ]
+      },
+      "yellow-ink": {
+        "role": "tertiary",
+        "displayName": "Process Yellow",
+        "canonical": "oklch(91.7% 0.192 101)",
+        "tonalRamp": [
+          "#160800",
+          "#362400",
+          "#584300",
+          "#7d6500",
+          "#a28900",
+          "#c5b000",
+          "#e5d454",
+          "#fff285"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Titular de portada, peso 800 ancho 88."
+      },
+      "display-light": {
+        "displayName": "Display light",
+        "purpose": "Segunda línea del titular y énfasis en títulos (peso 300)."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Títulos de sección."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Preguntas del FAQ y enlaces de contribuir."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Texto corrido."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Línea de pie de prueba, mayúsculas con tracking."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "ease-out-expo",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Todas las transiciones de interfaz."
+      },
+      {
+        "name": "register",
+        "value": "1200ms cubic-bezier(0.16, 1, 0.3, 1) 150ms",
+        "purpose": "Momento firmado: la titular entra desregistrada (cian y magenta) y encaja."
+      },
+      {
+        "name": "step-reveal",
+        "value": "600ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Los pasos de la historia ganan opacidad al centrarse."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "900px"
+      },
+      {
+        "name": "sm",
+        "value": "520px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Plancha K para la acción principal.",
+      "html": "<a class=\"ds-btn\" href=\"#\">Descargar Open-DTF</a>",
+      "css": ".ds-btn{display:inline-flex;align-items:center;min-height:48px;padding:13px 22px;background:#0b0b0c;color:#f4f5f3;border:1.5px solid #0b0b0c;border-radius:2px;font:600 16px Archivo,Arial,sans-serif;text-decoration:none;transition:background-color .2s,transform .15s}.ds-btn:hover{background:#26262a}.ds-btn:active{transform:scale(.98)}.ds-btn:focus-visible{outline:3px solid #0b0b0c;outline-offset:3px}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Acción secundaria con borde K.",
+      "html": "<a class=\"ds-btn-ghost\" href=\"#\">Ver el código</a>",
+      "css": ".ds-btn-ghost{display:inline-flex;align-items:center;min-height:48px;padding:13px 22px;background:transparent;color:#0b0b0c;border:1.5px solid #0b0b0c;border-radius:2px;font:600 16px Archivo,Arial,sans-serif;text-decoration:none;transition:background-color .2s,color .2s}.ds-btn-ghost:hover{background:#0b0b0c;color:#f4f5f3}.ds-btn-ghost:focus-visible{outline:3px solid #0b0b0c;outline-offset:3px}"
+    },
+    {
+      "name": "Demo Annotation",
+      "kind": "card",
+      "refersTo": "demo-annotation",
+      "description": "Panel blanco con borde K con los controles del demo.",
+      "html": "<div class=\"ds-demo\"><p>Pruébalo aquí</p><label>Frecuencia <input type=\"range\" min=\"15\" max=\"60\" value=\"28\"></label></div>",
+      "css": ".ds-demo{background:#fff;color:#0b0b0c;border:1.5px solid #0b0b0c;padding:14px 18px;font:14px Archivo,Arial,sans-serif;width:300px}.ds-demo p{margin:0 0 8px;font-weight:600;font-size:13px}.ds-demo label{display:flex;align-items:center;justify-content:space-between}.ds-demo input{accent-color:#0b0b0c}"
+    },
+    {
+      "name": "Colour Bar",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "Barra de color de imprenta: C, M, Y, K, R, G, B y tres grises.",
+      "html": "<div class=\"ds-bar\"><i style=\"background:#00aeef\"></i><i style=\"background:#ec008c\"></i><i style=\"background:#ffe600\"></i><i style=\"background:#0b0b0c\"></i><i style=\"background:#ed1c24\"></i><i style=\"background:#00a651\"></i><i style=\"background:#2e3192\"></i><i style=\"background:#bdbdbe\"></i><i style=\"background:#858587\"></i><i style=\"background:#4b4b4d\"></i></div>",
+      "css": ".ds-bar{display:flex;height:14px;width:320px}.ds-bar i{display:block;flex:1}"
+    },
+    {
+      "name": "FAQ Row",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "Fila de pregunta sobre reglas K, sin cajas.",
+      "html": "<details class=\"ds-faq\" open><summary>¿De verdad es gratis?</summary><p>Sí, con licencia MIT.</p></details>",
+      "css": ".ds-faq{border-top:1.5px solid #0b0b0c;border-bottom:1.5px solid #0b0b0c;width:320px;font-family:Archivo,Arial,sans-serif}.ds-faq summary{cursor:pointer;list-style:none;padding:18px 0;font:600 20px 'Bricolage Grotesque',Arial,sans-serif}.ds-faq summary:hover{text-decoration:underline}.ds-faq p{margin:0 0 16px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Check Print",
+    "overview": "La web es el pliego de pruebas que un diseñador revisa antes de imprimir. Lo que hace Open-DTF (convertir tono continuo en puntos, tinta por tinta) es el propio tema de la hoja, así que la página muestra sus separaciones en lugar de describirlas: marcas de corte, diana de registro, barra de color y una línea de pie con datos reales.",
+    "keyCharacteristics": [
+      "Papel blanco frío (nunca crema), tinta K y tres tintas de proceso como campos de página.",
+      "Mobiliario de imprenta dibujado en CSS/SVG.",
+      "Rectilíneo: bordes de 1,5 px en tinta K, radio de 2 px, sin sombras.",
+      "Un momento firmado: la titular entra desregistrada y encaja."
+    ],
+    "rules": [
+      {
+        "name": "The Ink Field Rule",
+        "body": "Cada tinta de proceso ocupa una sección entera o no aparece.",
+        "section": "colors"
+      },
+      {
+        "name": "The Cool Paper Rule",
+        "body": "El papel es blanco frío (#f4f5f3). Un papel cálido o crema es una deriva.",
+        "section": "colors"
+      },
+      {
+        "name": "The Weight Contrast Rule",
+        "body": "El énfasis tipográfico se hace con peso (800 frente a 300) dentro de la misma familia de display.",
+        "section": "typography"
+      },
+      {
+        "name": "The Wordmark Only Rule",
+        "body": "Instrument Serif Italic vive únicamente en «Open» del logotipo.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Sheet Rule",
+        "body": "Ninguna superficie lleva sombra; se separa con borde K o cambio de campo de tinta.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do dar a cada tinta de proceso una región entera de la página.",
+      "Do usar bordes de 1,5 px en K en lugar de sombras.",
+      "Do mantener el negro K en texto sobre cian, magenta y amarillo.",
+      "Do usar la barra de color y las marcas de corte como estructura.",
+      "Do respetar prefers-reduced-motion."
+    ],
+    "donts": [
+      "Don't usar papel crema ni cálido.",
+      "Don't usar sombras, degradados en texto ni acentos laterales de color.",
+      "Don't poner etiquetas o numeraciones encima de un titular.",
+      "Don't usar la serif cursiva fuera del logotipo."
+    ]
+  }
+}

@@ -8,11 +8,10 @@
   <meta property="og:title" content="Open-DTF — Semitonos DTF de código abierto" />
   <meta property="og:description" content="Plugin libre para Photoshop: semitonos, knockout y ajustes en vivo para DTF. Sin licencias ni suscripciones." />
   <meta property="og:type" content="website" />
-  <meta name="theme-color" content="#0c0c0d" />
+  <meta name="theme-color" content="#f4f5f3" />
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="preload" href="assets/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="assets/styles.css" />
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
@@ -44,8 +43,13 @@
   <main id="main">
     <!-- ===================== PORTADA ===================== -->
     <section class="hero" id="top" data-story="0">
+      <!-- Furniture de hoja de pruebas: marcas de corte, diana de registro y línea de pie de prueba -->
+      <span class="crop tl" aria-hidden="true"></span><span class="crop tr" aria-hidden="true"></span>
+      <span class="crop bl" aria-hidden="true"></span><span class="crop br" aria-hidden="true"></span>
+      <svg class="reg" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="12" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="24" cy="24" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M24 2v44M2 24h44" stroke="currentColor" stroke-width="1.5"/></svg>
+      <p class="slug" aria-hidden="true"><span>Open-DTF · check print</span><span class="slug-plates"><i class="pc"></i><i class="pm"></i><i class="py"></i><i class="pk"></i></span><span>30 LPI · 33° · MIT</span></p>
+
       <div class="hero-copy">
-        <p class="hero-tag"><span class="dot-live" aria-hidden="true"></span><span data-i18n="hero.tag">Plugin libre para Photoshop · Licencia MIT</span></p>
         <h1 class="hero-title">
           <span data-i18n="hero.t1">Semitonos DTF</span>
           <em data-i18n="hero.t2">sin pagar licencias.</em>
@@ -58,7 +62,7 @@
           </a>
           <a class="btn btn-ghost" href="https://github.com/eguiajosue/halftones-dtf" rel="noopener" data-i18n="hero.code">Ver el código</a>
         </div>
-        <p class="hero-meta" data-i18n="hero.meta">Photoshop 2022 (23.3) o posterior · sin conexión a internet · sin cuentas</p>
+        <p class="hero-meta"><span data-i18n="hero.tag">Plugin libre para Photoshop · Licencia MIT</span><br /><span data-i18n="hero.meta">Photoshop 2022 (23.3) o posterior · sin conexión a internet · sin cuentas</span></p>
       </div>
 
       <!-- Demostración en vivo: los controles mueven la trama 3D -->
@@ -81,13 +85,14 @@
         </label>
       </div>
       <a class="scroll-cue" href="#how" aria-label="Ver cómo funciona"><span></span></a>
+      <div class="colorbar" aria-hidden="true"><i class="c"></i><i class="m"></i><i class="y"></i><i class="k"></i><i class="r"></i><i class="g"></i><i class="b"></i><i class="t25"></i><i class="t50"></i><i class="t75"></i></div>
     </section>
 
     <!-- ===================== HISTORIA 3D ===================== -->
     <section class="story" id="how" aria-labelledby="howTitle">
       <h2 class="story-head" id="howTitle" data-i18n="how.title">De tu diseño a la película, en cinco pasos</h2>
 
-      <article class="step" data-story="1">
+      <article class="step plate-c" data-story="1">
         <span class="step-n">01</span>
         <h3 data-i18n="s1.t">Abre tu diseño y elige el tamaño</h3>
         <p data-i18n="s1.p">Abre el arte en Photoshop. Open-DTF lee el lienzo y te propone el tamaño de impresión a 300 ppi; cambia el ancho y el alto se ajusta en proporción.</p>
@@ -98,7 +103,7 @@
         </div>
       </article>
 
-      <article class="step" data-story="2">
+      <article class="step plate-m" data-story="2">
         <span class="step-n">02</span>
         <h3 data-i18n="s2.t">Elige la trama y pulsa Preparar</h3>
         <p data-i18n="s2.p">Punto, línea, diamante o elipse; frecuencia en LPI y ángulo. Al preparar, el plugin duplica tu documento y monta la trama con funciones nativas de Photoshop. Tu original no se toca.</p>
@@ -110,7 +115,7 @@
         </div>
       </article>
 
-      <article class="step" data-story="3">
+      <article class="step plate-y" data-story="3">
         <span class="step-n">03</span>
         <h3 data-i18n="s3.t">Quita el color de la prenda</h3>
         <p data-i18n="s3.p">Elige el color que no quieres imprimir, por ejemplo el negro de una camiseta negra. Desaparece, y las transiciones hacia él se convierten en puntos: sin cajas ni halos alrededor del diseño.</p>
@@ -120,7 +125,7 @@
         </div>
       </article>
 
-      <article class="step" data-story="4">
+      <article class="step plate-k" data-story="4">
         <span class="step-n">04</span>
         <h3 data-i18n="s4.t">Ajústalo en vivo</h3>
         <p data-i18n="s4.p">Niveles, realce de sombras, frecuencia y ángulo se aplican mientras arrastras. Cambia entre las vistas Original, Prenda, Alfa y Máscara para revisar el resultado.</p>
@@ -131,7 +136,7 @@
         </div>
       </article>
 
-      <article class="step" data-story="5">
+      <article class="step plate-all" data-story="5">
         <span class="step-n">05</span>
         <h3 data-i18n="s5.t">Aplica y exporta</h3>
         <p data-i18n="s5.p">Aplicar crea un documento nuevo con una sola capa con transparencia, limpia de puntos sueltos. Expórtala a PNG y llévala a tu RIP.</p>
@@ -216,6 +221,7 @@
   </main>
 
   <footer class="foot solid">
+    <div class="colorbar colorbar-foot" aria-hidden="true"><i class="c"></i><i class="m"></i><i class="y"></i><i class="k"></i><i class="r"></i><i class="g"></i><i class="b"></i><i class="t25"></i><i class="t50"></i><i class="t75"></i></div>
     <div class="wrap foot-row">
       <span class="brand small"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span><span class="wordmark"><em>Open</em>-DTF</span></span>
       <span class="foot-text"><span data-i18n="foot.l">Licencia MIT · No afiliado a Adobe. Photoshop es una marca de Adobe.</span>
