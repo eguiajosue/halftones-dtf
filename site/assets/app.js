@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const REPO = "eguiajosue/halftones-dtf";
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -119,19 +120,31 @@ if (renderer) {
   const frameLine = new THREE.Line(frameGeo, frameMat);
   poster.add(frameLine);
 
-  // Camiseta (paso 5): silueta propia
-  const tee = new THREE.Shape();
-  const P = [[-3.4, 6.2], [-1.6, 6.9], [-0.9, 6.3], [0, 6.0], [0.9, 6.3], [1.6, 6.9], [3.4, 6.2], [6.6, 4.0], [5.4, 1.7], [3.9, 2.6],
-             [3.9, -8.4], [-3.9, -8.4], [-3.9, 2.6], [-5.4, 1.7], [-6.6, 4.0]];
-  tee.moveTo(P[0][0], P[0][1]); P.slice(1).forEach(([x, y]) => tee.lineTo(x, y)); tee.lineTo(P[0][0], P[0][1]);
-  const teeGroup = new THREE.Group();
-  const teeMat = new THREE.MeshBasicMaterial({ color: 0x1b1b1e, transparent: true, opacity: 0 });
-  const teeLineMat = new THREE.LineBasicMaterial({ color: 0x55545a, transparent: true, opacity: 0 });
-  teeGroup.add(new THREE.Mesh(new THREE.ShapeGeometry(tee), teeMat));
-  teeGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tee.getPoints()), teeLineMat));
-  teeGroup.position.set(0, -0.6, -1.2);
-  teeGroup.scale.setScalar(1.55);
-  poster.add(teeGroup);
+  // Camiseta 3D: modelo «T-SHIRT 3D Model Free» de Mohammad Rajabloo (CC BY 4.0), simplificado
+  // para la web. Crédito visible en el pie de la página. Sustituye a la silueta plana.
+  const SHIRT_SCALE = 22;             // unidades del póster por unidad del modelo
+  const shirt = new THREE.Group();
+  shirt.visible = false;
+  poster.add(shirt);
+  const shirtMats = [];
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x1a1a22, 1.1));
+  const keyLight = new THREE.DirectionalLight(0xffffff, 2.2); keyLight.position.set(4, 6, 10); scene.add(keyLight);
+  const rimLight = new THREE.DirectionalLight(0x6fb6ff, 1.4); rimLight.position.set(-8, 3, -6); scene.add(rimLight);
+  new GLTFLoader().load("assets/shirt.glb", (g) => {
+    const model = g.scene;
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      o.material = new THREE.MeshStandardMaterial({ color: 0x232328, roughness: 0.92, metalness: 0, side: THREE.DoubleSide, transparent: true, opacity: 0 });
+      shirtMats.push(o.material);
+    });
+    model.updateMatrixWorld(true);
+    // El pecho se mide con un rayo hacia -z: la estampa queda justo delante de la tela
+    const hit = new THREE.Raycaster(new THREE.Vector3(0, 0.06, 3), new THREE.Vector3(0, 0, -1), 0, 10).intersectObject(model, true)[0];
+    const chestZ = hit ? hit.point.z : 0.12;
+    shirt.scale.setScalar(SHIRT_SCALE);
+    shirt.position.set(0, -0.06 * SHIRT_SCALE, -chestZ * SHIRT_SCALE - 0.75);   // la tela queda detrás de la estampa aunque se curve
+    shirt.add(model);
+  }, undefined, () => { /* sin modelo: la historia sigue solo con la trama */ });
 
   // Controles de la demo
   const demo = { lpi: 28, angle: 33, ko: true };
@@ -149,9 +162,9 @@ if (renderer) {
     { tiltX: -0.42, tiltY: 0.5, ht: 1, ko: -1, white: 0.72, depth: 0.9, float: 1, ang: -1, frame: 0, tee: 0, scale: 1 },   // portada
     { tiltX: 0, tiltY: 0, ht: 0, ko: 0, white: 1, depth: 0, float: 0, ang: 0, frame: 1, tee: 0, scale: 1 },               // 1 diseño
     { tiltX: -0.5, tiltY: -0.42, ht: 1, ko: 0, white: 0.9, depth: 1.4, float: 0, ang: -1, frame: 0.6, tee: 0, scale: 1 }, // 2 trama
-    { tiltX: -0.2, tiltY: 0.32, ht: 1, ko: 1, white: 0.8, depth: 0.6, float: 0, ang: -1, frame: 0, tee: 0, scale: 0.92 }, // 3 knockout
-    { tiltX: -0.1, tiltY: -0.18, ht: 1, ko: 1, white: 0.7, depth: 0.3, float: 0, ang: -1, frame: 0, tee: 0, scale: 0.92 }, // 4 en vivo
-    { tiltX: 0, tiltY: 0, ht: 1, ko: 1, white: 0.68, depth: 0, float: 0, ang: -1, frame: 0, tee: 1, scale: 0.5 },         // 5 aplicar
+    { tiltX: -0.2, tiltY: 0.32, ht: 1, ko: 1, white: 0.8, depth: 0.6, float: 0, ang: -1, frame: 0, tee: 1, scale: 0.85 }, // 3 knockout
+    { tiltX: -0.1, tiltY: -0.18, ht: 1, ko: 1, white: 0.7, depth: 0.3, float: 0, ang: -1, frame: 0, tee: 1, scale: 0.85 }, // 4 en vivo
+    { tiltX: -0.05, tiltY: 0.3, ht: 1, ko: 1, white: 0.68, depth: 0, float: 0, ang: -1, frame: 0, tee: 1, scale: 0.6 }, // 5 aplicar
   ];
   const ease = (t) => t * t * (3 - 2 * t);
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -222,16 +235,17 @@ if (renderer) {
     }
 
     // Composición
-    const baseScale = (wide ? Math.min(0.9, (visH * 0.78) / H) : Math.min(0.62, (visW * 0.86) / W)) * s.scale;
+    const baseScale = (wide ? Math.min(0.9, (visH * 0.78) / H) : Math.min(0.62, (visW * 0.86) / W)) * s.scale * (wide ? 1 : lerp(1, 0.6, s.tee));
     poster.scale.setScalar(baseScale);
-    const tx = wide ? visW * 0.2 : 0, ty = wide ? 0 : visH * 0.16;
-    poster.position.set(tx, ty + (1 - s.scale) * 1.4 * (s.tee), 0);
+    const tx = wide ? visW * 0.2 : 0, ty = wide ? 0 : visH * (0.16 + 0.1 * s.tee);   // en móvil, más arriba para no quedar bajo el texto
+    poster.position.set(tx, ty, 0);
     smX += (pointer.x - smX) * Math.min(1, dt * 3); smY += (pointer.y - smY) * Math.min(1, dt * 3);
     poster.rotation.set(s.tiltX + smY * 0.12, s.tiltY + smX * 0.18, 0);
     // En pantallas estrechas la trama de portada queda detrás del texto: se atenúa para que se lea
     mat.opacity = wide ? 1 : lerp(0.3, 1, Math.min(1, Math.max(0, pS)));
     frameMat.opacity = s.frame * 0.9;
-    teeMat.opacity = s.tee; teeLineMat.opacity = s.tee * 0.9;
+    shirt.visible = s.tee > 0.01 && shirtMats.length > 0;
+    for (const m of shirtMats) { m.opacity = s.tee; m.transparent = s.tee < 0.999; m.depthWrite = s.tee > 0.5; }
 
     // Trama: rejilla rotada al ángulo, recortada al póster
     const rows = Math.round(demo.lpi * 1.1);
