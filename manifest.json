@@ -1,25 +1,90 @@
 {
-  "manifestVersion": 5,
   "id": "com.halftonesdtf.plugin",
-  "name": "Halftones DTF",
-  "version": "0.1.0",
+  "name": "Open-DTF",
+  "version": "1.3.0",
   "main": "index.html",
+  "manifestVersion": 5,
   "host": {
     "app": "PS",
-    "minVersion": "24.2.0"
+    "minVersion": "23.3.0",
+    "data": {
+      "apiVersion": 2,
+      "loadEvent": "use"
+    }
+  },
+  "requiredPermissions": {
+    "localFileSystem": "plugin",
+    "allowCodeGenerationFromStrings": false
   },
   "entrypoints": [
     {
       "type": "panel",
-      "id": "halftonesPanel",
-      "label": { "default": "Halftones DTF" },
-      "minimumSize": { "width": 230, "height": 200 },
-      "maximumSize": { "width": 2000, "height": 2000 },
-      "preferredDockedSize": { "width": 300, "height": 400 },
-      "preferredFloatingSize": { "width": 450, "height": 500 }
+      "id": "halftonesDtfPanel",
+      "label": {
+        "default": "Open-DTF"
+      },
+      "minimumSize": {
+        "width": 230,
+        "height": 300
+      },
+      "maximumSize": {
+        "width": 2000,
+        "height": 2000
+      },
+      "preferredDockedSize": {
+        "width": 300,
+        "height": 640
+      },
+      "preferredFloatingSize": {
+        "width": 360,
+        "height": 640
+      },
+      "icons": [
+        {
+          "width": 23,
+          "height": 23,
+          "path": "assets/icons/panel-light.png",
+          "scale": [
+            1,
+            2
+          ],
+          "theme": [
+            "dark",
+            "darkest",
+            "medium"
+          ]
+        },
+        {
+          "width": 23,
+          "height": 23,
+          "path": "assets/icons/panel-dark.png",
+          "scale": [
+            1,
+            2
+          ],
+          "theme": [
+            "lightest",
+            "light"
+          ]
+        }
+      ]
     }
   ],
-  "requiredPermissions": {
-    "localFileSystem": "request"
-  }
+  "icons": [
+    {
+      "width": 24,
+      "height": 24,
+      "path": "assets/icons/plugin.png",
+      "scale": [
+        1,
+        2
+      ],
+      "theme": [
+        "all"
+      ],
+      "species": [
+        "pluginList"
+      ]
+    }
+  ]
 }

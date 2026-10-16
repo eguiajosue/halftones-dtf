@@ -1,9 +1,13 @@
 {
-  "name": "halftones-dtf",
-  "version": "0.1.0",
+  "name": "open-dtf",
+  "version": "1.3.0",
   "private": true,
-  "description": "Plugin UXP para Adobe Photoshop: halftones para impresión DTF",
+  "description": "Plugin UXP para Adobe Photoshop: preparación DTF/DTG con semitonos nativos",
   "scripts": {
-    "package": "node scripts/package.js"
+    "check": "node tools/check_native.js && node --check src/main.js",
+    "tiles": "python3 tools/make_tiles.py assets/tiles",
+    "icons": "python3 tools/make_icons.py assets/icons",
+    "build": "node tools/build.js",
+    "package": "npm run check && npm run build && node tools/package.js"
   }
 }

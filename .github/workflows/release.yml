@@ -1,0 +1,34 @@
+name: Release
+
+# Al empujar un tag vX.Y.Z se construye el .ccx y se publica el release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: El tag coincide con la versión del manifest
+        run: |
+          v="v$(node -p "require('./manifest.json').version")"
+          if [ "$v" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::El tag $GITHUB_REF_NAME no coincide con manifest.json ($v)"; exit 1
+          fi
+      - name: Construir .ccx
+        run: npm run package
+      - name: Copia con nombre estable (enlace de descarga de la web)
+        run: cp dist/OpenDTF_v*.ccx dist/OpenDTF.ccx
+      - name: Publicar release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/OpenDTF_v*.ccx dist/OpenDTF.ccx \
+            --title "Open-DTF $GITHUB_REF_NAME" --generate-notes

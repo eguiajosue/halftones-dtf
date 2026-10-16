@@ -1,13 +1,187 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <link rel="stylesheet" href="src/styles.css" />
-  </head>
-  <body>
-    <h2>Halftones DTF</h2>
-    <sp-body id="status">Listo.</sp-body>
-    <sp-button id="btn-info" variant="cta">Probar conexión</sp-button>
-    <script src="src/main.js"></script>
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- Cabecera: marca + estado -->
+    <header class="hdr">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="wordmark"><em>Open</em>-DTF</span>
+      </div>
+      <div class="hdr-right">
+        <span id="busy" class="tag tag-blue hidden">Actualizando</span>
+        <span id="phaseBadge" class="tag">1 · Configurar</span>
+      </div>
+    </header>
+
+    <div class="presetbar">
+      <div id="presetHolder" class="grow minw0"></div>
+      <sp-action-button id="btnPresetSave" size="s" quiet title="Guardar ajustes como preset">Guardar</sp-action-button>
+      <sp-action-button id="btnPresetDel" size="s" quiet title="Borrar preset seleccionado">Borrar</sp-action-button>
+    </div>
+
+    <div id="lockBanner" class="banner warn hidden"></div>
+    <div id="msg" class="banner hidden"></div>
+
+    <!-- Contenido adaptable: las tarjetas se reparten en columnas según el ancho -->
+    <main class="scroll">
+      <div class="cards">
+
+        <!-- ===== Paso 1: configuración ===== -->
+        <div id="step1" class="step">
+          <section class="slot">
+            <div class="card">
+              <sp-detail class="eyebrow">Tamaño de impresión</sp-detail>
+              <sp-body id="lblCurrentSize" class="hint">Lienzo actual a 300 ppi: —</sp-body>
+              <div class="row wrap">
+                <div class="field grow minw0"><span class="field-lbl">Ancho</span><input type="text" id="inW" /></div>
+                <span class="times">×</span>
+                <div class="field grow minw0"><span class="field-lbl">Alto</span><input type="text" id="inH" /></div>
+                <sp-picker id="btnUnit" size="s" class="unit"><sp-menu slot="options">
+                  <sp-menu-item>in</sp-menu-item><sp-menu-item>cm</sp-menu-item><sp-menu-item>mm</sp-menu-item>
+                </sp-menu></sp-picker>
+              </div>
+              <sp-body class="hint">Proporción bloqueada. Se redimensiona a 300 ppi.</sp-body>
+            </div>
+          </section>
+          <div id="slotHt1" class="slot"></div>
+          <div id="slotKo1" class="slot"></div>
+        </div>
+
+        <!-- ===== Paso 2: edición en vivo ===== -->
+        <div id="step2" class="step hidden">
+          <section class="slot">
+            <div class="card">
+              <sp-detail class="eyebrow">Vista</sp-detail>
+              <div class="seg" id="segPreview">
+                <div class="seg-btn" data-mode="original">Original</div>
+                <div class="seg-btn" data-mode="shirt">Prenda</div>
+                <div class="seg-btn" data-mode="alpha">Alfa</div>
+                <div class="seg-btn" data-mode="mask">Máscara</div>
+              </div>
+            </div>
+          </section>
+
+          <div id="slotHt2" class="slot"></div>
+
+          <section class="slot">
+            <div class="card">
+              <div class="card-head">
+                <sp-detail class="eyebrow">Tonos</sp-detail>
+                <div id="btnDefaults" class="link">Restablecer</div>
+              </div>
+              <sp-body class="sub">Entrada</sp-body>
+              <div id="lvlIn" class="slider"></div>
+              <div class="row">
+                <div class="field grow minw0"><span class="field-lbl">Negro</span><input type="text" id="inBlack" /></div>
+                <div class="field grow minw0"><span class="field-lbl">Gamma</span><input type="text" id="inGamma" /></div>
+                <div class="field grow minw0"><span class="field-lbl">Blanco</span><input type="text" id="inWhite" /></div>
+              </div>
+              <sp-divider size="small"></sp-divider>
+              <sp-body class="sub">Salida <span class="hint-inline">fuerza el semitono</span></sp-body>
+              <div id="lvlOut" class="slider"></div>
+              <div class="row">
+                <div class="field grow minw0"><span class="field-lbl">Mín</span><input type="text" id="inOutBlack" /></div>
+                <div class="field grow minw0"><span class="field-lbl">Máx</span><input type="text" id="inOutWhite" /></div>
+              </div>
+              <sp-divider size="small"></sp-divider>
+              <sp-body class="sub">Realce de sombras</sp-body>
+              <div class="row">
+                <div id="sldShadow" class="slider grow minw0"></div>
+                <input type="text" id="inShadow" class="num" />
+              </div>
+              <sp-body class="hint"><kbd>↑</kbd><kbd>↓</kbd> ±1 · <kbd>⇧</kbd> ±10 en los campos</sp-body>
+            </div>
+          </section>
+
+          <div id="slotKo2" class="slot"></div>
+
+          <section class="slot">
+            <div class="card">
+              <sp-detail class="eyebrow">Acabado</sp-detail>
+              <sp-body class="sub">Limpieza de puntos sueltos</sp-body>
+              <div class="seg" id="segCleanup">
+                <div class="seg-btn" data-value="none">Ninguna</div>
+                <div class="seg-btn" data-value="standard">Estándar</div>
+                <div class="seg-btn" data-value="high">Alta</div>
+              </div>
+              <div class="check"><sp-checkbox id="chkDefringe">Eliminar halo (de-fringe)</sp-checkbox></div>
+              <div class="check"><sp-checkbox id="chkNativeFinal">Trama final con motor de Photoshop <span class="hint-inline">experimental</span></sp-checkbox></div>
+            </div>
+          </section>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- Acciones -->
+    <footer class="footer">
+      <sp-button id="btnRun" variant="cta" class="grow">Preparar</sp-button>
+      <sp-button id="btnCancel" variant="secondary" class="grow hidden">Cancelar</sp-button>
+      <sp-button id="btnApply" variant="cta" class="grow hidden">Aplicar</sp-button>
+    </footer>
+  </div>
+
+  <!-- Bloques compartidos entre pasos (se mueven al paso activo) -->
+  <div id="htBlock" class="card">
+    <div class="card-head">
+      <sp-detail class="eyebrow">Semitono</sp-detail>
+      <span id="htLive" class="tag tag-green hidden">En vivo</span>
+    </div>
+    <div class="check"><sp-checkbox id="chkHalftone" checked>Activar semitono</sp-checkbox></div>
+    <div id="htBody">
+      <div class="seg" id="segHtType">
+        <div class="seg-btn" data-value="ROUND">Punto</div>
+        <div class="seg-btn" data-value="LINE">Línea</div>
+        <div class="seg-btn" data-value="DIAMOND">Diamante</div>
+        <div class="seg-btn" data-value="ELLIPSE">Elipse</div>
+      </div>
+      <sp-body class="sub">Frecuencia <span id="lblLpi" class="hint-inline"></span></sp-body>
+      <div class="row">
+        <div id="sldLpi" class="slider grow minw0"></div>
+        <input type="text" id="inLpi" class="num" />
+      </div>
+      <sp-body class="sub">Ángulo</sp-body>
+      <div class="row">
+        <div id="sldAngle" class="slider grow minw0"></div>
+        <input type="text" id="inAngle" class="num" />
+      </div>
+    </div>
+  </div>
+
+  <div id="koBlock" class="card">
+    <sp-detail class="eyebrow">Knockout</sp-detail>
+    <div class="check"><sp-checkbox id="chkKnockout" checked>Eliminar un color</sp-checkbox></div>
+    <div class="row colors">
+      <div class="color">
+        <div class="sw" data-color="knockoutColor" title="Color a eliminar"></div>
+        <span class="color-lbl">Eliminar</span>
+      </div>
+      <div class="color">
+        <div class="sw" data-color="shirt" title="Color de la prenda"></div>
+        <span class="color-lbl">Prenda</span>
+      </div>
+      <div class="grow minw0"><sp-checkbox id="chkLinked">Mismo color</sp-checkbox></div>
+    </div>
+  </div>
+
+  <dialog id="dlgPreset">
+    <form method="dialog">
+      <sp-heading size="XS">Guardar preset</sp-heading>
+      <sp-divider size="small"></sp-divider>
+      <input type="text" id="dlgPresetName" class="full" placeholder="Nombre del preset" />
+      <div class="row">
+        <sp-button id="dlgPresetCancel" variant="secondary" class="grow">Cancelar</sp-button>
+        <sp-button id="dlgPresetOk" variant="cta" class="grow">Guardar</sp-button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="main.js"></script>
+</body>
 </html>
