@@ -1,1 +1,5 @@
 *.wav
+renders/
+snaps/
+*.mp4
+.hyperframes/

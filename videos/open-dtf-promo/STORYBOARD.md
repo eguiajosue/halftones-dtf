@@ -10,7 +10,7 @@ music: base instrumental suave, positiva, ~100 bpm, atenuada bajo la voz
 
 ## Frame 1: El gancho (0-4.6s)
 - act: Gancho
-- status: outline
+- status: animated
 - duration: 4.6s
 - transition_in: none
 - scene: Un punto cian crece y estalla en una trama CMYK; una "LICENCIA" se tacha.
@@ -19,7 +19,7 @@ music: base instrumental suave, positiva, ~100 bpm, atenuada bajo la voz
 
 ## Frame 2: Open-DTF (4.6-10s)
 - act: Valor
-- status: outline
+- status: animated
 - duration: 5.4s
 - transition_in: morph (la trama se reúne en los tres puntos del logo)
 - scene: Logo Open-DTF grande; chips "Plugin para Photoshop", "Gratis", "Código abierto · MIT".
@@ -28,7 +28,7 @@ music: base instrumental suave, positiva, ~100 bpm, atenuada bajo la voz
 
 ## Frame 3: Paso 1 · Preparar (10-14.2s)
 - act: Mecanismo
-- status: outline
+- status: animated
 - duration: 4.2s
 - transition_in: morph (los puntos del logo se vuelven marcadores 1-2-3-4)
 - scene: "¿Cómo funciona?" → el diseño se duplica en dos cuadros: Original (intacto) y copia "Prep" con sello 300 ppi.
@@ -37,7 +37,7 @@ music: base instrumental suave, positiva, ~100 bpm, atenuada bajo la voz
 
 ## Frame 4: Paso 2 · Knockout (14.2-16.9s)
 - act: Mecanismo
-- status: outline
+- status: animated
 - duration: 2.7s
 - transition_in: morph (el cuadro "Prep" crece al centro)
 - scene: El color de la prenda (negro) desaparece del arte y aparece el patrón de transparencia.
@@ -46,7 +46,7 @@ music: base instrumental suave, positiva, ~100 bpm, atenuada bajo la voz
 
 ## Frame 5: Paso 3 · Semitono (16.9-22.4s)
 - act: Mecanismo
-- status: outline
+- status: animated
 - duration: 5.5s
 - transition_in: morph (el arte se disuelve en puntos)
 - scene: El arte se convierte en trama; la forma del punto cambia: redondo → línea → diamante → elipse; controles LPI 30 y Ángulo 33° en vivo.
@@ -55,7 +55,7 @@ music: base instrumental suave, positiva, ~100 bpm, atenuada bajo la voz
 
 ## Frame 6: Paso 4 · Aplicar (22.4-27.4s)
 - act: Resultado
-- status: outline
+- status: animated
 - duration: 5s
 - transition_in: morph (las capas se apilan y colapsan)
 - scene: Botón "Aplicar" → las capas se funden en una sola "Diseño - Prepped" → el diseño cae sobre una camiseta.
@@ -64,7 +64,7 @@ music: base instrumental suave, positiva, ~100 bpm, atenuada bajo la voz
 
 ## Frame 7: Descárgalo gratis (27.4-36s)
 - act: CTA
-- status: outline
+- status: animated
 - duration: 8.6s
 - transition_in: morph (la camiseta se reduce al logo)
 - scene: "Descárgalo gratis" + logo + URL eguiajosue.github.io/halftones-dtf + "Open source · MIT".
