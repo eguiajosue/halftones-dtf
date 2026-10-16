@@ -78,10 +78,24 @@
           <input type="range" id="demoAngle" min="0" max="90" step="0.5" value="33" />
           <output id="demoAngleOut">33°</output>
         </label>
-        <label class="demo-row demo-switch">
-          <span data-i18n="demo.ko">Knockout del negro</span>
-          <input type="checkbox" id="demoKo" checked />
-          <span class="switch" aria-hidden="true"></span>
+        <div class="demo-row demo-shape">
+          <span id="demoShapeLbl" data-i18n="demo.shape">Forma</span>
+          <div class="seg" id="demoShape" role="group" aria-labelledby="demoShapeLbl">
+            <button type="button" data-shape="ROUND" aria-pressed="true" data-i18n="sh.round">Punto</button>
+            <button type="button" data-shape="LINE" aria-pressed="false" data-i18n="sh.line">Línea</button>
+            <button type="button" data-shape="DIAMOND" aria-pressed="false" data-i18n="sh.diamond">Diamante</button>
+            <button type="button" data-shape="ELLIPSE" aria-pressed="false" data-i18n="sh.ellipse">Elipse</button>
+          </div>
+        </div>
+        <label class="demo-row">
+          <span data-i18n="demo.black">Negro</span>
+          <input type="range" id="demoBlack" min="0" max="120" step="1" value="5" />
+          <output id="demoBlackOut">5</output>
+        </label>
+        <label class="demo-row">
+          <span data-i18n="demo.white">Blanco</span>
+          <input type="range" id="demoWhite" min="100" max="255" step="1" value="184" />
+          <output id="demoWhiteOut">184</output>
         </label>
       </div>
       <a class="scroll-cue" href="#how" aria-label="Ver cómo funciona"><span></span></a>
