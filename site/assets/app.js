@@ -57,33 +57,78 @@ addEventListener("langchange", renderRelease);
 loadRelease();
 
 /* ============================================================
-   Ilustración procedural (sin imágenes de terceros):
-   sol retro con franjas y dos cordilleras sobre negro
+   Ilustración procedural (propia, sin recursos de terceros):
+   atardecer retro: cielo degradado con estrellas, sol con franjas,
+   dos cordilleras con luz de borde y lago con el reflejo del sol.
+   Todo lo que tiende al negro se elimina con el knockout.
    ============================================================ */
 const W = 8, H = 10;               // póster 4:5 en unidades de escena
+const HZ = 0.34;                   // línea del horizonte (v)
+const hash = (x, y) => { const t = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return t - Math.floor(t); };
+// Perfil de montaña: picos triangulares con una ligera irregularidad
+function ridge(u, peaks, jitter) {
+  let h = 0;
+  for (const [pu, ph, slope] of peaks) h = Math.max(h, ph - Math.abs(u - pu) * slope);
+  return h + jitter * (Math.sin(u * 61) * 0.5 + Math.sin(u * 137 + 1.3) * 0.3);
+}
+const BACK = [[0.12, 0.2, 0.9], [0.4, 0.15, 1.1], [0.82, 0.24, 0.95]];
+const FRONT = [[0.26, 0.1, 1.0], [0.64, 0.13, 1.15], [0.96, 0.08, 0.9]];
+const SUN = { cx: 0.5, cy: 0.56, R: 0.23 };
+function sunColor(t, o) {          // t: 0 abajo (magenta) · 1 arriba (amarillo)
+  o.r = 1; o.g = 0.14 + 0.78 * t; o.b = 0.5 - 0.42 * t; return o;
+}
 function art(u, v, o) {
-  let r = 0, g = 0, b = 0;
-  const cx = 0.5, cy = 0.6, R = 0.27;
-  const dx = (u - cx) * (W / H), dy = v - cy;
-  const d = Math.sqrt(dx * dx + dy * dy);
-  if (d <= R) {
-    const t = (v - (cy - R)) / (2 * R);                     // 0 abajo · 1 arriba
-    r = 1; g = 0.16 + 0.5 * t; b = 0.4 - 0.2 * t;      // naranja a rojo: legible sobre papel y sobre negro
-    if (v < cy) {                                           // franjas del sol
-      const k = (cy - v) / R, period = 0.052, gap = 0.008 + 0.03 * k;
-      if ((cy - v) % period < gap) { r = g = b = 0; }
+  if (v >= HZ) {
+    // Cielo: negro arriba, violeta y magenta hacia el horizonte
+    const t = Math.pow(1 - (v - HZ) / (1 - HZ), 2.4);
+    o.r = 0.62 * t; o.g = 0.05 * t + 0.02 * t * t; o.b = 0.5 * t;
+    // Estrellas en la parte alta
+    const cs = 0.032, ix = Math.floor(u / cs), iy = Math.floor(v / cs);
+    if (v > 0.62 && hash(ix, iy) > 0.94) {
+      const sx = u / cs - ix - 0.5, sy = v / cs - iy - 0.5;
+      if (sx * sx + sy * sy < 0.06) { o.r = o.g = o.b = 0.95; }
     }
-  } else {
-    const glow = Math.max(0, 1 - (d - R) / 0.24);           // halo: transición hacia el negro
-    const gl = glow * glow * 0.6;
-    r = gl; g = 0.32 * gl; b = 0.3 * gl;
+    // Sol con halo y franjas que se ensanchan hacia abajo
+    const dx = (u - SUN.cx) * (W / H), dy = v - SUN.cy, d = Math.hypot(dx, dy);
+    if (d <= SUN.R) {
+      sunColor((v - (SUN.cy - SUN.R)) / (2 * SUN.R), o);
+      const top = SUN.cy + 0.03;
+      if (v < top) {
+        const k = (top - v) / SUN.R, period = 0.042, gap = 0.003 + 0.024 * k;
+        if ((top - v) % period < gap) { const tt = Math.pow(1 - (v - HZ) / (1 - HZ), 2.4); o.r = 0.62 * tt; o.g = 0.05 * tt; o.b = 0.5 * tt; }
+      }
+    } else if (d < SUN.R + 0.2) {
+      const gl = Math.pow(1 - (d - SUN.R) / 0.2, 2) * 0.55;
+      o.r = Math.min(1, o.r + gl); o.g = Math.min(1, o.g + gl * 0.3); o.b = Math.min(1, o.b + gl * 0.35);
+    }
+    // Cordillera trasera (violeta) con luz de borde rosada
+    const hb = HZ + ridge(u, BACK, 0.006);
+    if (v < hb) {
+      const t2 = (v - HZ) / Math.max(0.001, hb - HZ), rim = Math.max(0, 1 - (hb - v) / 0.018);
+      o.r = 0.2 + 0.18 * t2 + 0.6 * rim; o.g = 0.1 + 0.08 * t2 + 0.25 * rim; o.b = 0.55 + 0.25 * t2 + 0.2 * rim;
+    }
+    // Cordillera delantera (azul profundo) con luz de borde cian
+    const hf = HZ + ridge(u, FRONT, 0.004);
+    if (v < hf) {
+      const t3 = (v - HZ) / Math.max(0.001, hf - HZ), rim = Math.max(0, 1 - (hf - v) / 0.014);
+      o.r = 0.03 + 0.05 * t3; o.g = 0.18 + 0.2 * t3 + 0.6 * rim; o.b = 0.42 + 0.25 * t3 + 0.5 * rim;
+    }
+    // Línea de horizonte encendida
+    if (v - HZ < 0.006) { o.r = Math.max(o.r, 1); o.g = Math.max(o.g, 0.35); o.b = Math.max(o.b, 0.6); }
+    return o;
   }
-  const h1 = 0.36 - Math.abs(u - 0.3) * 0.62;               // cordillera trasera
-  const h2 = 0.25 - Math.abs(u - 0.74) * 0.5;               // cordillera delantera
-  if (v < h1) { const t = v / Math.max(0.01, h1); r = 0.1 + 0.08 * t; g = 0.3 + 0.48 * t; b = 0.85 + 0.1 * t; }
-  if (v < h2) { const t = v / Math.max(0.01, h2); r = 0.35 + 0.53 * t; g = 0.08 + 0.15 * t; b = 0.66 + 0.34 * t; }
-  const fade = Math.min(1, v / 0.09);                       // base que se funde con el negro
-  o.r = r * fade; o.g = g * fade; o.b = b * fade;
+  // Lago: reflejo del sol en bandas onduladas que se estrechan con la profundidad
+  const depth = (HZ - v) / HZ;                       // 0 en el horizonte · 1 abajo
+  o.r = o.g = o.b = 0;
+  const half = (SUN.R * 0.95) * (1 - depth * 0.55);
+  const wave = Math.sin((HZ - v) * 150 + Math.sin(u * 24) * 1.2);
+  if (Math.abs((u - SUN.cx) * (W / H)) < half * (0.75 + 0.25 * Math.sin(v * 90)) && wave > -0.15 + depth * 0.9) {
+    sunColor(Math.max(0, 0.45 - depth * 0.45), o);
+    const f = (1 - depth) * 0.95;
+    o.r *= f; o.g *= f; o.b *= f;
+  } else if (wave > 0.85) {                           // brillos sueltos en el agua
+    const f = (1 - depth) * 0.35; o.r = 0.7 * f; o.g = 0.2 * f; o.b = 0.6 * f;
+  }
   return o;
 }
 
@@ -108,10 +153,17 @@ if (renderer) {
   scene.add(poster);
 
   // Puntos de la trama
-  const MAX = 8200;
-  const geo = new THREE.CircleGeometry(0.5, 20);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true });
-  const dots = new THREE.InstancedMesh(geo, mat, MAX);
+  const MAX = 16000;
+  // Cada punto es una gota de tinta con algo de grosor; su forma sigue la del plugin
+  const INK = 0.06;
+  const GEO = {
+    ROUND: new THREE.CylinderGeometry(0.5, 0.5, INK, 14).rotateX(Math.PI / 2),
+    ELLIPSE: new THREE.CylinderGeometry(0.5, 0.5, INK, 14).rotateX(Math.PI / 2),
+    DIAMOND: new THREE.CylinderGeometry(0.5, 0.5, INK, 4).rotateX(Math.PI / 2),
+    LINE: new THREE.BoxGeometry(1, 1, INK),
+  };
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.42, metalness: 0, transparent: true });
+  const dots = new THREE.InstancedMesh(GEO.ROUND, mat, MAX);
   dots.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   dots.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
   dots.instanceColor.setUsage(THREE.DynamicDrawUsage);
@@ -152,25 +204,38 @@ if (renderer) {
     shirt.add(model);
   }, undefined, () => { /* sin modelo: la historia sigue solo con la trama */ });
 
-  // Controles de la demo
-  const demo = { lpi: 28, angle: 33, ko: true };
-  const lpiIn = $("#demoLpi"), angIn = $("#demoAngle"), koIn = $("#demoKo");
+  // Controles de la demo: frecuencia, ángulo, forma del punto y niveles
+  const demo = { lpi: 28, angle: 33, shape: "ROUND", black: 5 / 255, white: 184 / 255 };
+  const lpiIn = $("#demoLpi"), angIn = $("#demoAngle"), blackIn = $("#demoBlack"), whiteIn = $("#demoWhite");
   const syncDemo = () => {
-    demo.lpi = +lpiIn.value; demo.angle = +angIn.value; demo.ko = koIn.checked;
+    demo.lpi = +lpiIn.value; demo.angle = +angIn.value;
+    let bk = +blackIn.value, wt = +whiteIn.value;
+    if (wt - bk < 20) { if (document.activeElement === blackIn) bk = wt - 20; else wt = bk + 20; blackIn.value = bk; whiteIn.value = wt; }
+    demo.black = bk / 255; demo.white = wt / 255;
     $("#demoLpiOut").textContent = `${demo.lpi} LPI`;
     $("#demoAngleOut").textContent = `${demo.angle}°`;
+    $("#demoBlackOut").textContent = bk;
+    $("#demoWhiteOut").textContent = wt;
   };
-  [lpiIn, angIn, koIn].forEach((el) => el.addEventListener("input", syncDemo));
+  [lpiIn, angIn, blackIn, whiteIn].forEach((el) => el.addEventListener("input", syncDemo));
+  $$("#demoShape button").forEach((btn) => btn.addEventListener("click", () => {
+    demo.shape = btn.dataset.shape;
+    $$("#demoShape button").forEach((x) => x.setAttribute("aria-pressed", String(x === btn)));
+    dots.geometry = GEO[demo.shape];
+  }));
   syncDemo();
+  // En móvil la trama va atenuada tras el texto; mientras se usan los controles se ve completa
+  let demoInView = false;
+  new IntersectionObserver((es) => { demoInView = es[0].isIntersecting; }, { threshold: 0.5 }).observe($(".demo"));
 
   /* Fotogramas clave de la historia (p = 0 portada · 1..5 pasos) */
   const K = [
-    { tiltX: -0.42, tiltY: 0.5, ht: 1, ko: -1, white: 0.72, depth: 0.9, float: 1, ang: -1, frame: 0, tee: 0, scale: 1 },   // portada
-    { tiltX: 0, tiltY: 0, ht: 0, ko: 0, white: 1, depth: 0, float: 0, ang: 0, frame: 1, tee: 0, scale: 1 },               // 1 diseño
-    { tiltX: -0.5, tiltY: -0.42, ht: 1, ko: 0, white: 0.9, depth: 1.4, float: 0, ang: -1, frame: 0.6, tee: 0, scale: 1 }, // 2 trama
-    { tiltX: -0.2, tiltY: 0.32, ht: 1, ko: 1, white: 0.8, depth: 0.6, float: 0, ang: -1, frame: 0, tee: 1, scale: 0.85 }, // 3 knockout
-    { tiltX: -0.1, tiltY: -0.18, ht: 1, ko: 1, white: 0.7, depth: 0.3, float: 0, ang: -1, frame: 0, tee: 1, scale: 0.85 }, // 4 en vivo
-    { tiltX: -0.05, tiltY: 0.3, ht: 1, ko: 1, white: 0.68, depth: 0, float: 0, ang: -1, frame: 0, tee: 1, scale: 0.6 }, // 5 aplicar
+    { tiltX: -0.2, tiltY: 0.36, ht: 1, ko: 1, black: -1, white: -1, depth: 0.25, float: 0.35, ang: -1, frame: 0, tee: 0, scale: 1 },   // portada
+    { tiltX: 0, tiltY: 0, ht: 0, ko: 0, black: 0.02, white: 1, depth: 0, float: 0, ang: 0, frame: 1, tee: 0, scale: 1 },               // 1 diseño
+    { tiltX: -0.5, tiltY: -0.42, ht: 1, ko: 0, black: 0.02, white: 0.9, depth: 1.4, float: 0, ang: -1, frame: 0.6, tee: 0, scale: 1 }, // 2 trama
+    { tiltX: -0.2, tiltY: 0.32, ht: 1, ko: 1, black: 0.02, white: 0.8, depth: 0.6, float: 0, ang: -1, frame: 0, tee: 1, scale: 0.85 }, // 3 knockout
+    { tiltX: -0.1, tiltY: -0.18, ht: 1, ko: 1, black: 0.02, white: 0.7, depth: 0.3, float: 0, ang: -1, frame: 0, tee: 1, scale: 0.85 }, // 4 en vivo
+    { tiltX: -0.05, tiltY: 0.3, ht: 1, ko: 1, black: 0.02, white: 0.68, depth: 0, float: 0, ang: -1, frame: 0, tee: 1, scale: 0.6 }, // 5 aplicar
   ];
   const ease = (t) => t * t * (3 - 2 * t);
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -180,7 +245,8 @@ if (renderer) {
     for (const k in a) {
       let va = a[k], vb = b[k];
       if (k === "ang") { va = va < 0 ? demo.angle : va; vb = vb < 0 ? demo.angle : vb; }
-      if (k === "ko") { va = va < 0 ? (demo.ko ? 1 : 0) : va; vb = vb < 0 ? (demo.ko ? 1 : 0) : vb; }
+      if (k === "white") { va = va < 0 ? demo.white : va; vb = vb < 0 ? demo.white : vb; }
+      if (k === "black") { va = va < 0 ? demo.black : va; vb = vb < 0 ? demo.black : vb; }
       s[k] = lerp(va, vb, t);
     }
     return s;
@@ -214,6 +280,7 @@ if (renderer) {
   const pointer = { x: 0, y: 0 };
   if (!reduceMotion) addEventListener("pointermove", (e) => { pointer.x = e.clientX / innerWidth - 0.5; pointer.y = e.clientY / innerHeight - 0.5; }, { passive: true });
 
+  const Z_AXIS = new THREE.Vector3(0, 0, 1);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), pos = new THREE.Vector3(), scl = new THREE.Vector3();
   const col = { r: 0, g: 0, b: 0 }, ccol = new THREE.Color();
   const miniWhite = $("#miniWhite"), miniWhiteVal = $("#miniWhiteVal");
@@ -243,24 +310,26 @@ if (renderer) {
     // Composición
     const baseScale = (wide ? Math.min(0.9, (visH * 0.78) / H) : Math.min(0.62, (visW * 0.86) / W)) * s.scale * (wide ? 1 : lerp(1, 0.6, s.tee));
     poster.scale.setScalar(baseScale);
-    const tx = wide ? visW * 0.2 : 0, ty = wide ? 0 : visH * (0.16 + 0.1 * s.tee);   // en móvil, más arriba para no quedar bajo el texto
+    const tx = wide ? visW * 0.2 : 0, ty = wide ? visH * 0.03 : visH * (0.16 + 0.1 * s.tee);   // en móvil, más arriba para no quedar bajo el texto
     poster.position.set(tx, ty, 0);
     smX += (pointer.x - smX) * Math.min(1, dt * 3); smY += (pointer.y - smY) * Math.min(1, dt * 3);
     poster.rotation.set(s.tiltX + smY * 0.12, s.tiltY + smX * 0.18, 0);
     // En pantallas estrechas la trama de portada queda detrás del texto: se atenúa para que se lea
-    mat.opacity = wide ? 1 : lerp(0.3, 1, Math.min(1, Math.max(0, pS)));
+    mat.opacity = wide ? 1 : (demoInView ? 1 : lerp(0.3, 1, Math.min(1, Math.max(0, pS))));
     frameMat.opacity = s.frame * 0.9;
     shirt.visible = s.tee > 0.01 && shirtMats.length > 0;
     for (const m of shirtMats) { m.opacity = s.tee; m.transparent = s.tee < 0.999; m.depthWrite = s.tee > 0.5; }
 
     // Trama: rejilla rotada al ángulo, recortada al póster
-    const rows = Math.round(demo.lpi * 1.1);
+    const rows = Math.round(demo.lpi * 1.5);
     const sp = H / rows;
     const D = Math.sqrt(W * W + H * H);
     const side = Math.min(Math.floor(Math.sqrt(MAX)), Math.ceil(D / sp) + 2);
     const n = side * side;
     const a = THREE.MathUtils.degToRad(s.ang), ca = Math.cos(a), sa = Math.sin(a);
-    const fullD = sp * 1.42, black = 0.02, gammaInv = 1 / 1.25;
+    const fullD = sp * 1.42, black = s.black, gammaInv = 1 / 1.25;
+    const shape = demo.shape;
+    q.setFromAxisAngle(Z_AXIS, a + (shape === "DIAMOND" ? Math.PI / 4 : 0));
     let shown = 0;
     for (let i = 0; i < n; i++) {
       const gx = ((i % side) - side / 2 + 0.5) * sp, gy = (Math.floor(i / side) - side / 2 + 0.5) * sp;
@@ -286,7 +355,14 @@ if (renderer) {
       ccol.setRGB(Math.min(1, col.r * kk), Math.min(1, col.g * kk), Math.min(1, col.b * kk));
       if (mx < 0.02) ccol.setRGB(0.07, 0.07, 0.075);   // negro: apenas visible sobre la prenda
       pos.set(x, y, z);
-      scl.set(d, d, 1);
+      // Escala según la forma, con la misma cobertura de tinta que el punto redondo
+      if (shape === "LINE") {
+        const th = lerp(sp * 1.02, sp * cov, s.ht) * lerp(1, keep, s.ko);
+        if (th < 0.004) continue;
+        scl.set(sp * 1.02, th, 1);
+      } else if (shape === "ELLIPSE") scl.set(d * 1.25, d * 0.8, 1);
+      else if (shape === "DIAMOND") scl.set(d * 1.253, d * 1.253, 1);
+      else scl.set(d, d, 1);
       m4.compose(pos, q, scl);
       dots.setMatrixAt(shown, m4);
       dots.setColorAt(shown, ccol);

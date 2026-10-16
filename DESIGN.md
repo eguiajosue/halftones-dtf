@@ -8,6 +8,29 @@ colors:
   cyan-ink: "#00aeef"
   magenta-ink: "#ec008c"
   yellow-ink: "#ffe600"
+  sheet-white: "#ffffff"
+  switch-off: "#c9cbc7"
+  overprint-red: "#ed1c24"
+  overprint-green: "#00a651"
+  overprint-blue: "#2e3192"
+  tint-25: "#bdbdbe"
+  tint-50: "#858587"
+  tint-75: "#4b4b4d"
+  black: "#000000"
+  white: "#fff"
+  panel-replica-bg: "#2b2b2b"
+  panel-replica-field: "#373737"
+  panel-replica-line: "#555"
+  panel-replica-line-strong: "#8c8c8c"
+  panel-replica-muted: "#a09e99"
+  panel-replica-text: "#ebe9e4"
+  panel-replica-accent: "#3a9cf0"
+  panel-replica-on-accent: "#06233a"
+  panel-replica-live: "#8fd2a9"
+  panel-replica-live-bg: "#1f3a2d"
+  panel-replica-checker-light: "#ddd"
+  panel-replica-checker-dark: "#bbb"
+  panel-replica-print: "#ff7a3c"
 typography:
   display:
     fontFamily: "Bricolage Grotesque, Arial Narrow, Helvetica Neue, Arial, sans-serif"
@@ -43,6 +66,74 @@ typography:
     fontWeight: 400
     lineHeight: 1.6
     letterSpacing: "normal"
+  wordmark:
+    fontFamily: "Bricolage Grotesque, Arial Narrow, Helvetica Neue, Arial, sans-serif"
+    fontSize: "22px"
+    fontWeight: 700
+    lineHeight: 1
+    letterSpacing: "-0.02em"
+  wordmark-open:
+    fontFamily: "Instrument Serif, Georgia, serif"
+    fontSize: "26px"
+    fontWeight: 400
+    lineHeight: 1
+    letterSpacing: "-0.02em"
+  story-headline:
+    fontFamily: "Bricolage Grotesque, Arial Narrow, Helvetica Neue, Arial, sans-serif"
+    fontSize: "clamp(38px, 5.6vw, 84px)"
+    fontWeight: 800
+    lineHeight: 1
+    letterSpacing: "-0.015em"
+  step-title:
+    fontFamily: "Bricolage Grotesque, Arial Narrow, Helvetica Neue, Arial, sans-serif"
+    fontSize: "clamp(28px, 3vw, 44px)"
+    fontWeight: 700
+    lineHeight: 1.06
+    letterSpacing: "-0.01em"
+  fact-title:
+    fontFamily: "Bricolage Grotesque, Arial Narrow, Helvetica Neue, Arial, sans-serif"
+    fontSize: "24px"
+    fontWeight: 700
+    lineHeight: 1.15
+  card-title:
+    fontFamily: "Bricolage Grotesque, Arial Narrow, Helvetica Neue, Arial, sans-serif"
+    fontSize: "20px"
+    fontWeight: 700
+  lead:
+    fontFamily: "Archivo, Helvetica Neue, Arial, sans-serif"
+    fontSize: "clamp(17px, 1.5vw, 20px)"
+    fontWeight: 400
+    lineHeight: 1.6
+  lead-large:
+    fontFamily: "Archivo, Helvetica Neue, Arial, sans-serif"
+    fontSize: "19px"
+    fontWeight: 400
+    lineHeight: 1.6
+  body-small:
+    fontFamily: "Archivo, Helvetica Neue, Arial, sans-serif"
+    fontSize: "16px"
+    fontWeight: 400
+    lineHeight: 1.6
+  meta:
+    fontFamily: "Archivo, Helvetica Neue, Arial, sans-serif"
+    fontSize: "15px"
+    fontWeight: 400
+  caption:
+    fontFamily: "Archivo, Helvetica Neue, Arial, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+  caption-small:
+    fontFamily: "Archivo, Helvetica Neue, Arial, sans-serif"
+    fontSize: "13px"
+    fontWeight: 600
+  control:
+    fontFamily: "Archivo, Helvetica Neue, Arial, sans-serif"
+    fontSize: "12px"
+    fontWeight: 600
+  panel-replica-tag:
+    fontFamily: "Segoe UI, Archivo, sans-serif"
+    fontSize: "10px"
+    fontWeight: 500
   label:
     fontFamily: "Archivo, Helvetica Neue, Arial, sans-serif"
     fontSize: "11px"
@@ -52,6 +143,11 @@ typography:
     fontVariation: "'wdth' 80"
 rounded:
   sm: "2px"
+  replica-xs: "3px"
+  replica-sm: "4px"
+  replica-md: "6px"
+  replica-tag: "9px"
+  replica-button: "14px"
 spacing:
   xs: "4px"
   sm: "8px"
@@ -174,7 +270,7 @@ Rectilíneo, como una plancha: radio de 2 px en botones, 0 en paneles, bordes de
 - **Hover / Focus:** relleno a #26262a; `scale(0.98)` al pulsar; foco de 3 px en K (papel sobre plancha negra), desplazado 3 px.
 
 ### Anotación del demo (plate-panel)
-- **Style:** panel blanco con borde K de 1,5 px, sin radio ni sombra; deslizadores con `accent-color` K; interruptor con borde K que se rellena de amarillo.
+- **Style:** panel blanco con borde K de 1,5 px, sin radio ni sombra; deslizadores con `accent-color` K (frecuencia, ángulo, niveles negro/blanco) y un selector segmentado de forma de punto con borde K, cuya opción activa se invierte a K sobre papel.
 
 ### Cards / Containers
 - **Corner Style:** 0.
@@ -190,6 +286,9 @@ Rectilíneo, como una plancha: radio de 2 px en botones, 0 en paneles, bordes de
 
 ### Línea de pie de prueba y barra de color (signature)
 - Barra de 14 px con diez bloques planos: C, M, Y, K, R, G, B y tres grises. Cierra la portada y abre el pie. Línea de pie de 11 px en mayúsculas con datos reales (30 LPI, 33°, MIT).
+
+### Réplicas del panel del plugin
+- Las miniaturas de la historia reproducen el panel real de Open-DTF en Photoshop, así que conservan su paleta y sus radios (tokens `panel-replica-*` y `replica-*`). Son producto, no estilo de la web: no se reutilizan fuera de esas réplicas.
 
 ## Do's and Don'ts
 

@@ -132,6 +132,15 @@ body.dark .nav .btn { background: var(--paper); color: var(--k); border-color: v
 .demo-row > span:first-child { flex: 0 0 104px; }
 .demo-row output { font-size: 13px; font-weight: 600; flex: 0 0 58px; text-align: right; }
 .demo input[type="range"] { flex: 1; margin: 0 12px; accent-color: var(--k); height: 28px; cursor: pointer; }
+.demo-shape { flex-wrap: wrap; padding: 4px 0; }
+.demo-shape > span { flex: 0 0 104px; }
+.seg { display: flex; flex: 1; border: var(--rule); }
+.seg button { flex: 1 1 0; min-height: 34px; padding: 0 4px; font: 600 12px var(--sans); color: var(--k); background: #fff;
+              border: 0; border-right: 1px solid var(--k); cursor: pointer; transition: background-color 150ms; }
+.seg button:last-child { border-right: 0; }
+.seg button:hover { background: var(--paper-2); }
+.seg button[aria-pressed="true"] { background: var(--k); color: var(--paper); }
+.seg button:focus-visible { outline: 3px solid var(--m); outline-offset: -3px; }
 .demo-switch { justify-content: space-between; }
 .demo-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .switch { width: 40px; height: 22px; background: #c9cbc7; position: relative; transition: background-color 200ms; border: 1.5px solid var(--k); }
@@ -274,7 +283,7 @@ code { white-space: nowrap; font-family: var(--sans); font-weight: 600; font-siz
   body { font-size: 16px; }
   .wordmark { font-size: 19px; } .wordmark em { font-size: 22px; }
   .nav .btn-small { display: none; }
-  .demo-row > span:first-child { flex-basis: 88px; }
+  .demo-row > span:first-child, .demo-shape > span { flex-basis: 88px; }
   .crop.tl, .crop.tr { top: 76px; } .slug { top: 80px; }
 }
 @media (prefers-reduced-motion: reduce) {
