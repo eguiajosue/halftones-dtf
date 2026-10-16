@@ -24,7 +24,7 @@ Plugin **libre y de código abierto** (MIT) para Adobe Photoshop que prepara dis
 Más detalles en [CONTRIBUTING.md](CONTRIBUTING.md). Los descriptores de batchPlay pendientes de validar están en [`docs/VERIFICACION.md`](docs/VERIFICACION.md).
 
 ## Publicar una versión
-Sube la versión en `manifest.json` y `package.json`, haz merge a `main` y empuja el tag (`git tag v1.3.0 && git push origin v1.3.0`). El workflow **Release** construye el `.ccx` y publica el release; **Pages** publica `site/` en cada cambio de la web.
+Sube la versión en `manifest.json` y `package.json` y haz merge a `main`. Después, en GitHub: **Releases › Draft a new release**, crea el tag `vX.Y.Z` sobre `main` y pulsa **Publish** (o empuja el tag con git). El workflow **Release** construye el `.ccx` y lo adjunta al release; **Pages** publica `site/` en cada cambio de la web.
 
 ## Estructura
 `manifest.json`, `index.html`, `styles.css`, `main.js` (generado) · `src/` (`main.js`, `state.js`, `presets.js`, `ps/`, `ui/`) · `assets/` (motivos e iconos) · `tools/` (generadores, comprobaciones, empaquetado) · `site/` (web en GitHub Pages) · `.github/workflows/` (CI, release y Pages).

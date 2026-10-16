@@ -1,34 +1,48 @@
 name: Release
 
-# Al empujar un tag vX.Y.Z se construye el .ccx y se publica el release.
+# Dos formas de publicar una versión (ambas construyen el .ccx y lo adjuntan):
+#  1) Desde la web de GitHub: Releases › Draft a new release › tag "vX.Y.Z" (crear en main) › Publish.
+#  2) Desde git: git tag vX.Y.Z && git push origin vX.Y.Z
+# El tag debe coincidir con la versión de manifest.json.
 on:
+  release:
+    types: [published]
   push:
     tags: ["v*"]
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - name: El tag coincide con la versión del manifest
         run: |
           v="v$(node -p "require('./manifest.json').version")"
-          if [ "$v" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::El tag $GITHUB_REF_NAME no coincide con manifest.json ($v)"; exit 1
+          if [ "$v" != "$TAG" ]; then
+            echo "::error::El tag $TAG no coincide con manifest.json ($v)"; exit 1
           fi
       - name: Construir .ccx
         run: npm run package
       - name: Copia con nombre estable (enlace de descarga de la web)
         run: cp dist/OpenDTF_v*.ccx dist/OpenDTF.ccx
-      - name: Publicar release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Crear el release si no existe y adjuntar el .ccx
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/OpenDTF_v*.ccx dist/OpenDTF.ccx \
-            --title "Open-DTF $GITHUB_REF_NAME" --generate-notes
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Open-DTF $TAG" --generate-notes
+          fi
+          gh release upload "$TAG" dist/OpenDTF_v*.ccx dist/OpenDTF.ccx --clobber
