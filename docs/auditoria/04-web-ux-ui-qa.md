@@ -206,4 +206,4 @@ Nota: el texto de la portada sobre la escena 3D (A3) no tiene un ratio fijo; dep
 - Página completa: `web-desktop-full.png`, `web-tablet-full.png`, `web-mobile-full.png`
 - Reduced motion: `web-reduced-hero-early.png`, `web-reduced-step4.png`
 
-Todas en `/tmp/claude-0/-home-user-halftones-dtf/ab514123-9b8b-47f6-8625-3f468da08add/scratchpad/audit/shots/`.
+Todas en `(scratchpad de la sesión)/audit/shots/`.

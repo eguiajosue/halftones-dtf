@@ -17,7 +17,7 @@ Las capturas se hicieron en Chromium (Playwright 1.56.1 + `/opt/pw-browsers`) co
 
 En las capturas, los sliders de Frecuencia y Ángulo aparecen con dos asas. Es un error de la simulación: en el plugin real tienen una sola. Las fuentes `Geist`/`Instrument Serif` tampoco existen en UXP, así que en Photoshop el panel usará la fuente del sistema (Segoe UI o SF).
 
-Carpeta: `/tmp/claude-0/-home-user-halftones-dtf/ab514123-9b8b-47f6-8625-3f468da08add/scratchpad/audit/shots/`
+Carpeta: `(scratchpad de la sesión)/audit/shots/`
 
 | Captura | Qué muestra |
 |---|---|

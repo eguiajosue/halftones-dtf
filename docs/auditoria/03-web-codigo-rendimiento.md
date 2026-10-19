@@ -14,7 +14,7 @@ Alcance: `site/index.html`, `site/assets/app.js`, `site/assets/i18n.js`, `site/a
   - La latencia real de jsDelivr.
   - Los FPS con GPU real: SwiftShader convierte cada frame en una long task de unos 100 ms, así que FPS e INP absolutos **no son representativos**. Lo que sí vale es el coste JS por frame y el hecho de que el bucle nunca se detiene.
   - Los Core Web Vitals de campo (CrUX).
-- Scripts y resultados en `/tmp/claude-0/-home-user-halftones-dtf/ab514123-9b8b-47f6-8625-3f468da08add/scratchpad/audit/03-bench/` (`bench.mjs`, `lcp.mjs`, `fcp.mjs`, `loopbench.mjs`, `results.json`).
+- Scripts y resultados en `(scratchpad de la sesión)/audit/03-bench/` (`bench.mjs`, `lcp.mjs`, `fcp.mjs`, `loopbench.mjs`, `results.json`).
 
 ### Números clave medidos
 
