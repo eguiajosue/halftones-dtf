@@ -18,3 +18,10 @@ El plugin se escribió sin poder ejecutarlo en Photoshop. Antes de distribuirlo,
 - [ ] `minimum` + `preserveShape`, `defringe`, `median`, `thresholdClassEvent`, `thresholdClassEvent` como capa de ajuste
 - [ ] Respuesta de `showColorPicker` · [ ] `duplicate merged` · [ ] `convertMode bitmapMode/halftoneScreen`
 - [ ] Polaridad (T2): si los puntos salen invertidos, invertir los tiles (`255 - v`) y regenerar con `npm run tiles`.
+
+## Auditoría (rama `audit/code-ux-improvements`) — pendiente de validar en UXP
+- [ ] `resumeHistory(hid, false)` revierte el estado al fallar `applyPrep` / `sync` y no deja capas huérfanas
+- [ ] `suspendHistory` con `documentID` del documento de trabajo mientras `nativeScreenMask` crea y cierra `__ht_tmp`
+- [ ] CSS en UXP 23.3: `pointer-events:none` en `.locked`, `outline` de foco y `@media (prefers-color-scheme: light)`
+- [ ] Teclado (Intro/Espacio) en segmentados, muestras de color y Restablecer
+- [ ] Slider de Sombras: se aplica al soltar; Aplicar recoge un cambio pendiente si se perdió el `mouseup`

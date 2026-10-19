@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://eguiajosue.github.io/halftones-dtf/sitemap.xml

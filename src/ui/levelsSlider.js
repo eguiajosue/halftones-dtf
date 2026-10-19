@@ -1,6 +1,6 @@
 // Slider compuesto de 1 a 3 asas. Cada asa: { key, kind: "value" | "gamma" }.
 // "gamma" se posiciona entre las asas "black" y "white" en escala logarítmica.
-// onChange se llama en cada movimiento (tiempo real); onCommit al soltar.
+// onChange se llama en cada movimiento que cambia un valor (tiempo real); onCommit al soltar, si hubo cambio.
 const { clamp } = require("../util");
 
 function createSlider(root, { min, max, handles, constrain, fill = null, gradient = false, onChange, onCommit }) {
@@ -9,13 +9,14 @@ function createSlider(root, { min, max, handles, constrain, fill = null, gradien
   const fillEl = root.querySelector(".fill");
   const els = {};
   let drag = null;
+  let moved = false;     // el arrastre en curso cambió algún valor
 
   handles.forEach(h => {
     const el = document.createElement("div");
     el.className = "handle" + (h.kind === "gamma" ? " gamma" : "");
     root.appendChild(el);
     els[h.key] = el;
-    el.addEventListener("mousedown", e => { drag = h; e.preventDefault(); e.stopPropagation(); });
+    el.addEventListener("mousedown", e => { drag = h; moved = false; e.preventDefault(); e.stopPropagation(); });
   });
 
   const pctOf = v => ((clamp(v, min, max) - min) / (max - min)) * 100;
@@ -45,13 +46,23 @@ function createSlider(root, { min, max, handles, constrain, fill = null, gradien
   }
 
   function apply(h, val) {
+    const prev = values[h.key];
     if (h.kind === "gamma") {
       values.gamma = tToGamma(clamp((val - values.black) / Math.max(1, values.white - values.black), 0, 1));
     } else {
       values[h.key] = constrain(h.key, val, values);
     }
+    if (values[h.key] === prev) return;   // mismo valor redondeado: nada que sincronizar
+    moved = true;
     render();
     onChange({ ...values });
+  }
+
+  function endDrag() {
+    if (!drag) return;
+    drag = null;
+    if (moved && onCommit) onCommit({ ...values });
+    moved = false;
   }
 
   // Clic en la pista: mueve el asa más cercana y empieza a arrastrarla
@@ -65,15 +76,16 @@ function createSlider(root, { min, max, handles, constrain, fill = null, gradien
     }
     if (!best) return;
     drag = best;
+    moved = false;
     apply(best, val);
   });
 
-  document.addEventListener("mousemove", e => { if (drag) apply(drag, valueAt(e.clientX)); });
-  document.addEventListener("mouseup", () => {
+  document.addEventListener("mousemove", e => {
     if (!drag) return;
-    drag = null;
-    if (onCommit) onCommit({ ...values });
+    if (e.buttons === 0) return endDrag();   // se soltó fuera del panel: no seguir arrastrando
+    apply(drag, valueAt(e.clientX));
   });
+  document.addEventListener("mouseup", endDrag);
 
   return {
     set(v) { Object.assign(values, v); render(); },
@@ -98,9 +110,9 @@ const createOutputSlider = (root, onChange) => createSlider(root, {
   min: 0, max: 255, constrain: constrainOut, onChange, gradient: true, fill: ["outBlack", "outWhite"],
   handles: [{ key: "outBlack", kind: "value" }, { key: "outWhite", kind: "value" }] });
 
-// Slider de un valor (sombras, LPI, ángulo)
-const createValueSlider = (root, key, { min, max, stepBy = 1 }, onChange) => createSlider(root, {
-  min, max, onChange, fill: [null, key],
+// Slider de un valor (sombras, LPI, ángulo). onCommit (opcional): al soltar, para ajustes costosos
+const createValueSlider = (root, key, { min, max, stepBy = 1 }, onChange, onCommit) => createSlider(root, {
+  min, max, onChange, onCommit, fill: [null, key],
   constrain: (k, v) => clamp(+step(v, stepBy).toFixed(2), min, max),
   handles: [{ key, kind: "value" }] });
 

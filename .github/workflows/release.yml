@@ -44,11 +44,15 @@ jobs:
             v[0-9]*.[0-9]*.[0-9]*) ;;
             *) echo "::error::Tag inválido: $TAG (usa vX.Y.Z)"; exit 1 ;;
           esac
-      - name: El tag coincide con la versión del manifest
+      - name: El tag coincide con la versión de manifest.json y package.json
         run: |
           v="v$(node -p "require('./manifest.json').version")"
           if [ "$v" != "$TAG" ]; then
             echo "::error::El tag $TAG no coincide con manifest.json ($v)"; exit 1
+          fi
+          p="v$(node -p "require('./package.json').version")"
+          if [ "$p" != "$TAG" ]; then
+            echo "::error::El tag $TAG no coincide con package.json ($p)"; exit 1
           fi
       - name: Construir .ccx
         run: npm run package

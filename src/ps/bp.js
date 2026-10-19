@@ -27,17 +27,23 @@ async function bp(descs) {
   return res;
 }
 
-// Wrapper modal. history:true suspende el historial del documento activo (una sola entrada).
-async function modal(name, fn, { history = false } = {}) {
+// Wrapper modal. history:true suspende el historial (una sola entrada) del documento docId, o del activo.
+// Si fn falla, la entrada se descarta (resumeHistory(hid, false)): el documento vuelve a como estaba.
+async function modal(name, fn, { history = false, docId = null } = {}) {
   return core.executeAsModal(async (ctx) => {
     let hid = null;
-    if (history && app.activeDocument) {
-      hid = await ctx.hostControl.suspendHistory({ documentID: app.activeDocument.id, name });
-    }
+    const id = docId || (app.activeDocument && app.activeDocument.id);
+    if (history && id) hid = await ctx.hostControl.suspendHistory({ documentID: id, name });
+    let ok = false;
     try {
-      return await fn(ctx);
+      const r = await fn(ctx);
+      ok = true;
+      return r;
     } finally {
-      if (hid !== null) await ctx.hostControl.resumeHistory(hid);
+      if (hid !== null) {
+        if (ok) await ctx.hostControl.resumeHistory(hid, true);
+        else { try { await ctx.hostControl.resumeHistory(hid, false); } catch (e) { console.log("Open-DTF: no se pudo revertir el historial:", e); } }
+      }
     }
   }, { commandName: name, interactive: false });
 }
