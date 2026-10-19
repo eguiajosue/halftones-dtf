@@ -4,7 +4,8 @@
   "private": true,
   "description": "Plugin UXP para Adobe Photoshop: preparación DTF/DTG con semitonos nativos",
   "scripts": {
-    "check": "node tools/check_native.js && node --check src/main.js",
+    "check": "node tools/check_native.js && node --check main.js",
+    "test": "node --test tests/*.test.js",
     "tiles": "python3 tools/make_tiles.py assets/tiles",
     "icons": "python3 tools/make_icons.py assets/icons",
     "build": "node tools/build.js",

@@ -133,5 +133,5 @@ async function setShadowBoost(amount) {
 
 module.exports = {
   makeSolid, makeHueSatDesat, makeThreshold, makeLevels, setLevels, setSolid,
-  makeHalftoneLayer, setHalftoneParams, setShadowBoost, applyShadowBoost
+  makeHalftoneLayer, setHalftoneParams, setShadowBoost
 };

@@ -20,6 +20,4 @@ async function setPreviewMode(mode) {
   await bp(previewDescs(mode));
 }
 
-const restorePreviewVisibility = () => setPreviewMode(state.previewMode);
-
-module.exports = { setPreviewMode, restorePreviewVisibility, previewDescs, vis };
+module.exports = { setPreviewMode, previewDescs, vis };

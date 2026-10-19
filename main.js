@@ -18,6 +18,76 @@
     defs[id](m, m.exports, function (r) { return r.charAt(0) === "." ? load(norm(id, r)) : nativeRequire(r); });
     return m.exports;
   }
+defs["src/liveQueue.js"] = function (module, exports, require) {
+// Cola de cambios del modo en vivo. Cada control marca qué cambió ("kinds"); un único bucle aplica
+// el último estado sin perder tipos de cambio (el último valor gana, no se acumulan llamadas).
+//  - dirty: pendiente de aplicar. Si falla por WRONG_DOC se conserva y se reintenta al volver al documento.
+//  - stale: el documento no refleja el panel (fallo de sincronización o cambio diferido, p. ej. un
+//    slider que solo aplica al soltar). No se reintenta solo; flush() lo aplica antes de Aplicar.
+// opts: { sync(kinds), onError(e), canPump(), onBusy(on) }
+function createLiveQueue({ sync, onError = () => {}, canPump = () => true, onBusy = () => {} }) {
+  const dirty = new Set();
+  const stale = new Set();
+  let pumping = false;
+
+  async function pump() {
+    if (pumping) return;
+    pumping = true;
+    onBusy(true);
+    try {
+      while (dirty.size && canPump()) {
+        const kinds = new Set(dirty);
+        dirty.clear();
+        try {
+          await sync(kinds);
+          kinds.forEach(k => stale.delete(k));
+        } catch (e) {
+          const wrongDoc = e && e.message === "WRONG_DOC";
+          kinds.forEach(k => (wrongDoc ? dirty : stale).add(k));
+          await onError(e);
+          if (wrongDoc) break;          // se reanuda con pump() al desbloquear
+        }
+      }
+    } finally {
+      pumping = false;
+      onBusy(false);
+    }
+  }
+
+  async function drain() {
+    while (pumping) await new Promise(r => setTimeout(r, 30));
+  }
+
+  // Espera al ajuste en curso y aplica todo lo pendiente (dirty + stale) de una vez.
+  // Si falla, lo pendiente se conserva y el error se propaga.
+  async function flush() {
+    await drain();
+    const kinds = new Set([...dirty, ...stale]);
+    if (!kinds.size) return;
+    dirty.clear();
+    stale.clear();
+    try {
+      await sync(kinds);
+    } catch (e) {
+      const wrongDoc = e && e.message === "WRONG_DOC";
+      kinds.forEach(k => (wrongDoc ? dirty : stale).add(k));
+      throw e;
+    }
+  }
+
+  return {
+    mark: (...kinds) => kinds.forEach(k => dirty.add(k)),
+    defer: (...kinds) => kinds.forEach(k => stale.add(k)),
+    clear: () => { dirty.clear(); stale.clear(); },
+    pending: () => new Set([...dirty, ...stale]),
+    isPumping: () => pumping,
+    pump, drain, flush
+  };
+}
+
+module.exports = { createLiveQueue };
+
+};
 defs["src/main.js"] = function (module, exports, require) {
 const { app } = require("photoshop");
 const { state, DEFAULTS, resetState } = require("./state");
@@ -29,6 +99,7 @@ const presets = require("./presets");
 const pipeline = require("./ps/pipeline");
 const live = require("./ps/live");
 const events = require("./ps/events");
+const { createLiveQueue } = require("./liveQueue");
 
 const $ = id => document.getElementById(id);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -42,7 +113,11 @@ const prefs = {
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* sin almacenamiento */ } }
 };
 let unit = prefs.get("unit", "in");
-let uiLocked = false;
+let uiLocked = false;     // el documento activo no es el de trabajo
+let opBusy = false;       // Preparar / Aplicar / Cancelar en curso
+
+const LOCK_MSG = "Vuelve al documento de trabajo o pulsa Cancelar.";
+const BTN_LABELS = { btnRun: "Preparar", btnApply: "Aplicar", btnCancel: "Cancelar" };
 
 // ---------- utilidades de UI (compatibles con UXP: sin toggleAttribute ni classList.toggle(x, bool)) ----------
 const setClass = (el, cls, on) => (on ? el.classList.add(cls) : el.classList.remove(cls));
@@ -52,6 +127,15 @@ const pickerIndex = el => (el.selectedIndex >= 0 ? el.selectedIndex : 0);
 const num = (el, d) => { const v = parseFloat(String(el.value).replace(",", ".")); return Number.isFinite(v) ? v : d; };
 const dimPx = v => (typeof v === "number" ? v : v && typeof v.as === "function" ? v.as("px") : Number(v && v.value !== undefined ? v.value : v));
 function currentDoc() { try { return app.activeDocument; } catch (e) { return null; } }
+const inStep2 = () => state.phase === "ACTIVE" || state.phase === "APPLYING" || state.phase === "CANCELLING";
+
+// Clic y teclado (Intro / Espacio) para los controles hechos con div
+function onActivate(el, fn) {
+  el.addEventListener("click", fn);
+  el.addEventListener("keydown", e => {
+    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") { e.preventDefault(); fn(); }
+  });
+}
 
 // ---------- mensajes ----------
 let msgTimer = null;
@@ -59,55 +143,77 @@ function message(text, kind = "info", ms = 0) {
   const el = $("msg");
   clearTimeout(msgTimer);
   if (!text) { setHidden(el, true); return; }
-  el.textContent = text;
+  $("msgText").textContent = text;
   el.className = "banner" + (kind === "info" ? "" : " " + kind);
+  el.setAttribute("role", kind === "error" ? "alert" : "status");
   if (ms) msgTimer = setTimeout(() => setHidden(el, true), ms);
 }
 const status = text => message(text, "error");
 
-async function fail(e) {
+// Errores: frase clara con qué hacer en el panel; el detalle técnico, a la consola (UXP Developer Tool)
+const DETAILS = " Detalles en la consola.";
+async function fail(e, what = "No se pudo actualizar la vista previa. Vuelve a mover el control o pulsa Cancelar.") {
   const m = e && e.message ? e.message : String(e);
-  if (m === "WRONG_DOC") return lock("Vuelve al documento de trabajo o pulsa Cancelar.");
+  if (m === "WRONG_DOC") { if (state.phase === "ACTIVE") lock(); return; }
   if (m === "MISSING_LAYERS") return message("Las capas de trabajo ya no existen (¿deshiciste algo?). Pulsa Cancelar.", "warn");
   if (m === "CANCELLED") return message("Operación cancelada.", "warn", 3000);
-  message(m, "error");
-  console.log("Halftones DTF:", e);
+  console.log("Open-DTF:", e);
+  if (/Reinstala el plugin/.test(m)) return message(m.replace(/\s*\[paso:.*\]$/, ""), "error");
+  message(what + DETAILS, "error");
 }
 
 // ---------- pasos ----------
 function showStep() {
-  const active = state.phase === "ACTIVE";
+  const active = inStep2();
   setHidden($("step1"), active);
   setHidden($("step2"), !active);
   setHidden($("btnRun"), active);
   setHidden($("btnCancel"), !active);
   setHidden($("btnApply"), !active);
   setHidden($("htLive"), !active);
-  $("phaseBadge").textContent = active ? "2 · Ajustar en vivo" : "1 · Configurar";
+  setHidden($("busy"), !active);
+  $("phaseBadge").textContent = active ? "2 · En vivo" : "1 · Configurar";
   setClass($("phaseBadge"), "active", active);
   // Los bloques de semitono y knockout se comparten: se mueven al paso visible
   $(active ? "slotHt2" : "slotHt1").appendChild($("htBlock"));
   $(active ? "slotKo2" : "slotKo1").appendChild($("koBlock"));
 }
 
-function lock(msg) {
+// Estado de bloqueo y botones en un solo sitio (bloqueo por documento ajeno u operación en curso)
+function refreshControls() {
+  setClass(document.querySelector(".cards"), "locked", opBusy);
+  setClass($("step2"), "locked", uiLocked && !opBusy);
+  setClass(document.querySelector(".presetbar"), "locked", opBusy || uiLocked);
+  setDisabled($("btnRun"), opBusy || !currentDoc() || !sizeValid());
+  setDisabled($("btnApply"), opBusy || uiLocked);
+  setDisabled($("btnCancel"), opBusy);
+}
+
+// Preparar / Aplicar / Cancelar: etiqueta de progreso en el botón y controles bloqueados mientras dura
+function setBusy(btnId, label) {
+  opBusy = !!btnId;
+  for (const id of Object.keys(BTN_LABELS)) $(id).textContent = id === btnId ? label : BTN_LABELS[id];
+  refreshControls();
+}
+
+function lock(msg = LOCK_MSG) {
   uiLocked = true;
   $("lockBanner").textContent = msg;
   setHidden($("lockBanner"), false);
-  setClass($("step2"), "locked", true);
-  ["btnApply"].forEach(id => setDisabled($(id), true));
+  refreshControls();
 }
-function unlock() {
-  if (!uiLocked) return;
+function unlock(force) {
+  if (!uiLocked && !force) return;
   uiLocked = false;
   setHidden($("lockBanner"), true);
-  setClass($("step2"), "locked", false);
-  setDisabled($("btnApply"), false);
+  refreshControls();
+  if (state.phase === "ACTIVE") queue.pump();   // aplicar lo que cambió mientras estaba bloqueado
 }
 
 function resetToIdle() {
   resetState();
-  unlock();
+  queue.clear();
+  unlock(true);
   showStep();
   syncUI();
   updateCurrentPrintSize(true);
@@ -118,10 +224,10 @@ let sizeSig = null;
 
 function updateCurrentPrintSize(force) {
   const doc = currentDoc();
-  setDisabled($("btnRun"), !doc);
   if (!doc) {
     $("lblCurrentSize").textContent = "Abre un documento para empezar.";
     $("inW").value = ""; $("inH").value = ""; sizeSig = null;
+    validateSize();
     return;
   }
   const wpx = dimPx(doc.width), hpx = dimPx(doc.height);
@@ -130,6 +236,20 @@ function updateCurrentPrintSize(force) {
   // Valor inicial = tamaño del lienzo; solo se reescribe si cambia el documento, su tamaño o la unidad
   const sig = `${doc.id}:${wpx}x${hpx}:${unit}`;
   if (force || sig !== sizeSig) { $("inW").value = w; $("inH").value = h; sizeSig = sig; }
+  validateSize();
+}
+
+// Vacío = tamaño actual; cualquier otro valor debe ser un número mayor que 0
+function sizeFieldOk(id) {
+  const raw = String($(id).value).trim();
+  return raw === "" || num($(id), NaN) > 0;
+}
+const sizeValid = () => sizeFieldOk("inW") && sizeFieldOk("inH");
+
+function validateSize() {
+  for (const id of ["inW", "inH"]) setClass($(id), "invalid", !sizeFieldOk(id));
+  setHidden($("lblSizeErr"), sizeValid());
+  refreshControls();
 }
 
 // Edición proporcional: cambiar un lado recalcula el otro con la proporción del lienzo
@@ -151,37 +271,29 @@ function targetSize() {
 
 // ---------- tiempo real: cola de cambios pendientes ----------
 // Cada control marca qué cambió; un único bucle aplica el último estado sin perder tipos de cambio.
-const dirty = new Set();
-let pumping = false;
+// Con la UI bloqueada (u otra operación en curso) el cambio se anota y se aplica después.
+const queue = createLiveQueue({
+  sync: kinds => live.sync(S, kinds),
+  onError: e => fail(e),
+  canPump: () => state.phase === "ACTIVE",
+  onBusy: on => setClass($("busy"), "invisible", !on)   // visibility: no mueve la cabecera
+});
 
 function touch(...kinds) {
-  if (state.phase !== "ACTIVE" || uiLocked) return;
-  kinds.forEach(k => dirty.add(k));
-  pump();
-}
-
-async function pump() {
-  if (pumping) return;
-  pumping = true;
-  setHidden($("busy"), false);
-  try {
-    while (dirty.size) {
-      const kinds = new Set(dirty);
-      dirty.clear();
-      try { await live.sync(S, kinds); }
-      catch (e) { dirty.clear(); await fail(e); }
-    }
-  } finally {
-    pumping = false;
-    setHidden($("busy"), true);
-  }
+  if (state.phase !== "ACTIVE" && state.phase !== "APPLYING") return;
+  queue.mark(...kinds);
+  if (state.phase === "ACTIVE" && !uiLocked) queue.pump();
 }
 
 // ---------- sincronización ajustes -> UI ----------
 let sIn, sOut, sShadow, sLpi, sAngle;
 
 function setSeg(id, attr, value) {
-  $$(`#${id} .seg-btn`).forEach(b => setClass(b, "active", b.dataset[attr] === value));
+  $$(`#${id} .seg-btn`).forEach(b => {
+    const on = b.dataset[attr] === value;
+    setClass(b, "active", on);
+    b.setAttribute("aria-checked", on ? "true" : "false");
+  });
 }
 
 function updateLpiLabel() {
@@ -212,6 +324,8 @@ function syncColors() {
   $("chkKnockout").checked = S.knockout;
   $("chkLinked").checked = S.linked;
   $$(".sw").forEach(e => { e.style.background = toCss(S[e.dataset.color]); });
+  // Sin knockout el color a eliminar no se usa (el de la prenda sí: vista Prenda)
+  setClass($("swKo").parentNode, "locked", !S.knockout);
 }
 
 function syncUI() {
@@ -241,8 +355,10 @@ function bindNumber(el, apply, { step = 1, decimals = 0, liveTyping = false } = 
 
 // ---------- colores ----------
 async function onSwatch(key) {
+  if (opBusy || uiLocked) return;
   let c;
-  try { c = await pickColor(S[key]); } catch (e) { return fail(e); }
+  await queue.drain();   // el selector abre su propio modal: no competir con un ajuste en curso
+  try { c = await pickColor(S[key]); } catch (e) { return fail(e, "No se pudo abrir el selector de color."); }
   if (!c) return;
   S[key] = c;
   if (S.linked) { S.knockoutColor = { ...c }; S.shirt = { ...c }; }
@@ -251,89 +367,147 @@ async function onSwatch(key) {
 }
 
 // ---------- presets ----------
+// Los nombres se resuelven por índice (no por el texto del item, que va escapado)
+let presetNames = ["Default"];
+const escapeHtml = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 async function refreshPresets(selected) {
-  const names = await presets.list();
-  const idx = Math.max(0, names.indexOf(selected || prefs.get("lastPreset", "Default")));
+  presetNames = await presets.list();
+  const idx = Math.max(0, presetNames.indexOf(selected || prefs.get("lastPreset", "Default")));
   // Se recrea el picker completo (con sus items) para que UXP lo renderice bien
   $("presetHolder").innerHTML = '<sp-picker id="presetPicker" size="s" class="full" label="Preset"><sp-menu slot="options">' +
-    names.map(n => `<sp-menu-item>${n.replace(/[<&]/g, "")}</sp-menu-item>`).join("") + "</sp-menu></sp-picker>";
+    presetNames.map(n => `<sp-menu-item>${escapeHtml(n)}</sp-menu-item>`).join("") + "</sp-menu></sp-picker>";
   $("presetPicker").selectedIndex = idx;
   $("presetPicker").addEventListener("change", onPresetChange);
-  return names[idx];
+  setDisabled($("btnPresetDel"), presetNames[idx] === "Default");
+  return presetNames[idx];
 }
 
 function currentPresetName() {
-  const items = $("presetPicker").querySelectorAll("sp-menu-item");
-  const it = items[pickerIndex($("presetPicker"))];
-  return it ? it.textContent : "Default";
+  return presetNames[pickerIndex($("presetPicker"))] || "Default";
+}
+
+// Aviso del módulo de presets (archivo dañado); true si se mostró
+function presetWarning() {
+  const w = presets.takeWarning();
+  if (w) message(w, "warn");
+  return !!w;
 }
 
 async function onPresetChange() {
   const name = currentPresetName();
   prefs.set("lastPreset", name);
+  setDisabled($("btnPresetDel"), name === "Default");
   Object.assign(S, await presets.load(name));
   syncUI();
   touch(...live.ALL_KINDS);
-  message(`Preset "${name}" cargado.`, "ok", 2000);
+  if (!presetWarning()) message(`Preset "${name}" cargado.`, "ok", 2000);
 }
 
-async function askPresetName() {
-  const dlg = $("dlgPreset");
-  $("dlgPresetName").value = "";
-  const done = new Promise(res => {
-    $("dlgPresetOk").onclick = e => { e.preventDefault(); dlg.close("ok"); res(true); };
-    $("dlgPresetCancel").onclick = e => { e.preventDefault(); dlg.close("cancel"); res(false); };
-  });
-  const shown = dlg.uxpShowModal({ title: "Guardar preset", resize: "none", size: { width: 300, height: 160 } });
+// Diálogos modales: un solo "done" pendiente; Esc o cerrar la ventana cuentan como cancelar
+let dialogDone = () => {};
+async function runDialog(id, title, height) {
+  const dlg = $(id);
+  const done = new Promise(res => { dialogDone = ok => { dlg.close(ok ? "ok" : "cancel"); res(ok); }; });
+  const shown = dlg.uxpShowModal({ title, resize: "none", size: { width: 300, height } });
   const r = await Promise.race([shown, done]);
-  return (r === "ok" || r === true) ? $("dlgPresetName").value.trim() : "";
+  return r === true || r === "ok";
+}
+
+function refreshPresetDialog() {
+  const n = $("dlgPresetName").value.trim();
+  const exists = n !== "Default" && presetNames.includes(n);
+  setDisabled($("dlgPresetOk"), !n || n === "Default");
+  $("dlgPresetOk").textContent = exists ? "Reemplazar" : "Guardar";
+  const hint = n === "Default" ? 'El preset "Default" no se puede sobrescribir.'
+             : exists ? "Ya existe un preset con ese nombre: se reemplazará." : "";
+  $("dlgPresetHint").textContent = hint;
+  setHidden($("dlgPresetHint"), !hint);
+}
+const presetNameOk = () => { const n = $("dlgPresetName").value.trim(); return !!n && n !== "Default"; };
+
+async function askPresetName() {
+  const cur = currentPresetName();
+  $("dlgPresetName").value = cur === "Default" ? "" : cur;
+  refreshPresetDialog();
+  const ok = await runDialog("dlgPreset", "Guardar preset", 190);
+  return ok && presetNameOk() ? $("dlgPresetName").value.trim() : "";
+}
+
+async function askConfirm(text, okLabel) {
+  $("dlgConfirmText").textContent = text;
+  $("dlgConfirmOk").textContent = okLabel;
+  return runDialog("dlgConfirm", "Open-DTF", 170);
 }
 
 // ---------- Preparar / Aplicar / Cancelar ----------
 async function onRun() {
+  if (opBusy || state.phase !== "IDLE") return;
   const doc = currentDoc();
   if (!doc) return message("Abre un documento primero.", "warn");
+  if (!sizeValid()) return message("Indica un tamaño mayor que 0.", "warn");
   const { widthPx, heightPx } = targetSize();
   if (Math.max(widthPx, heightPx) > 20000) {
     return message(`Tamaño muy grande (${widthPx}×${heightPx} px). Máximo recomendado: 20 000 px por lado.`, "warn");
   }
-  message("");
-  setDisabled($("btnRun"), true);
+  message("Preparando el documento de trabajo…");
+  setBusy("btnRun", "Preparando…");
+  const before = JSON.stringify(S);
   try {
     const ok = await pipeline.runPrep({ ...S, widthPx, heightPx });
     if (ok) {
       state.previewMode = "shirt";
       message("Listo. Los cambios se aplican en vivo.", "ok", 3000);
+    } else {
+      message("Preparación cancelada.", "warn", 3000);
     }
   } catch (e) {
-    await fail(e);
+    await fail(e, "No se pudo preparar el documento. Comprueba que tiene al menos una capa visible y vuelve a intentarlo.");
     resetState();
   } finally {
-    setDisabled($("btnRun"), false);
+    setBusy(null);
     showStep();
     syncUI();
+    // Ajustes cambiados durante la preparación (p. ej. con el teclado): aplicarlos ya
+    if (state.phase === "ACTIVE" && JSON.stringify(S) !== before) touch(...live.ALL_KINDS, "ht");
   }
 }
 
 async function onApply() {
+  if (opBusy || state.phase !== "ACTIVE" || uiLocked) return;
   message("");
-  setDisabled($("btnApply"), true);
+  state.phase = "APPLYING";             // touch() solo anota; events.js no bloquea ni resetea
+  setBusy("btnApply", "Aplicando…");
   try {
-    while (pumping) await new Promise(r => setTimeout(r, 50));   // terminar ajustes pendientes
-    await pipeline.applyPrep(S);
+    await queue.flush();                // Aplicar usa exactamente lo que muestra el panel
+    const name = await pipeline.applyPrep(S);
     resetToIdle();
-    message("Listo: se creó el documento «- Prepped».", "ok", 4000);
+    message(`Listo: se creó «${name}». El original no se modificó.`, "ok", 5000);
   } catch (e) {
-    await fail(e);
+    if (state.phase === "APPLYING") state.phase = "ACTIVE";
+    await fail(e, "No se pudo aplicar. El documento de trabajo se dejó como estaba: vuelve a intentarlo o pulsa Cancelar.");
+    if (state.phase === "ACTIVE" && !uiLocked) queue.pump();
   } finally {
-    setDisabled($("btnApply"), false);
+    setBusy(null);
   }
 }
 
 async function onCancel() {
-  dirty.clear();
-  try { await pipeline.cancelPrep(); } catch (e) { console.log(e); }
-  resetToIdle();
+  if (opBusy || state.phase !== "ACTIVE") return;
+  state.phase = "CANCELLING";           // la cola deja de aplicar; events.js no interviene
+  setBusy("btnCancel", "Cancelando…");
+  try {
+    await queue.drain();                // no cerrar el documento con un ajuste en vuelo
+    await pipeline.cancelPrep();
+    resetToIdle();
+  } catch (e) {
+    // El documento de trabajo sigue abierto: se continúa en vivo
+    if (state.phase === "CANCELLING") state.phase = "ACTIVE";
+    await fail(e, "No se pudo cerrar el documento de trabajo. Ciérralo a mano o vuelve a pulsar Cancelar.");
+    if (state.phase === "ACTIVE" && !uiLocked) queue.pump();
+  } finally {
+    setBusy(null);
+  }
 }
 
 // ---------- cableado ----------
@@ -346,7 +520,7 @@ function bindUI() {
     updateLpiLabel();
   });
   for (const id of ["inW", "inH"]) {
-    for (const ev of ["input", "change"]) $(id).addEventListener(ev, () => linkSize(id));
+    for (const ev of ["input", "change"]) $(id).addEventListener(ev, () => { linkSize(id); validateSize(); });
   }
 
   // Semitono (en vivo en el paso 2)
@@ -355,7 +529,7 @@ function bindUI() {
     setHidden($("htBody"), !S.halftone);
     touch("mask");
   });
-  $$("#segHtType .seg-btn").forEach(b => b.addEventListener("click", () => {
+  $$("#segHtType .seg-btn").forEach(b => onActivate(b, () => {
     if (S.htType === b.dataset.value) return;
     S.htType = b.dataset.value;
     setSeg("segHtType", "value", S.htType);
@@ -377,14 +551,14 @@ function bindUI() {
   }, { step: 0.5, decimals: 1, liveTyping: true });
 
   // Knockout y colores
-  $("chkKnockout").addEventListener("change", () => { S.knockout = $("chkKnockout").checked; touch("mask"); });
+  $("chkKnockout").addEventListener("change", () => { S.knockout = $("chkKnockout").checked; syncColors(); touch("mask"); });
   $("chkLinked").addEventListener("change", () => {
     S.linked = $("chkLinked").checked;
     if (S.linked) S.shirt = { ...S.knockoutColor };
     syncColors();
     touch("shirt");
   });
-  $$(".sw").forEach(e => e.addEventListener("click", () => onSwatch(e.dataset.color)));
+  $$(".sw").forEach(e => onActivate(e, () => onSwatch(e.dataset.color)));
 
   // Tonos (en vivo mientras se arrastra)
   sIn = sliders.createInputSlider($("lvlIn"), v => {
@@ -397,9 +571,11 @@ function bindUI() {
     $("inOutBlack").value = v.outBlack; $("inOutWhite").value = v.outWhite;
     touch("levels");
   });
+  // Sombras: re-renderiza Sombras/Iluminaciones a resolución completa; se aplica al soltar, no en cada movimiento
   sShadow = sliders.createValueSlider($("sldShadow"), "shadow", { min: 0, max: 100 }, v => {
-    S.shadow = v.shadow; $("inShadow").value = v.shadow; touch("shadow");
-  });
+    S.shadow = v.shadow; $("inShadow").value = v.shadow;
+    if (state.phase === "ACTIVE") queue.defer("shadow");   // si no llega a soltarse, Aplicar lo recoge
+  }, () => touch("shadow"));
   const levelField = (id, fn, opts) => bindNumber($(id), v => {
     if (Number.isFinite(v)) { fn(v); touch("levels"); }
     syncTones();
@@ -414,7 +590,7 @@ function bindUI() {
     syncTones();
   });
 
-  $("btnDefaults").addEventListener("click", () => {
+  onActivate($("btnDefaults"), () => {
     Object.assign(S, { black: DEFAULTS.black, gamma: DEFAULTS.gamma, white: DEFAULTS.white,
                        outBlack: DEFAULTS.outBlack, outWhite: DEFAULTS.outWhite, shadow: DEFAULTS.shadow });
     syncTones();
@@ -422,12 +598,12 @@ function bindUI() {
   });
 
   // Vista y acabado
-  $$("#segPreview .seg-btn").forEach(b => b.addEventListener("click", () => {
+  $$("#segPreview .seg-btn").forEach(b => onActivate(b, () => {
     state.previewMode = b.dataset.mode;
     setSeg("segPreview", "mode", state.previewMode);
     touch("preview");
   }));
-  $$("#segCleanup .seg-btn").forEach(b => b.addEventListener("click", () => {
+  $$("#segCleanup .seg-btn").forEach(b => onActivate(b, () => {
     S.cleanup = b.dataset.value;
     setSeg("segCleanup", "value", S.cleanup);
   }));
@@ -442,19 +618,35 @@ function bindUI() {
       await presets.save(name, S);
       prefs.set("lastPreset", name);
       await refreshPresets(name);
-      message(`Preset "${name}" guardado.`, "ok", 2500);
+      if (!presetWarning()) message(`Preset "${name}" guardado.`, "ok", 2500);
     } catch (e) { message(e.message, "warn"); }
   });
   $("btnPresetDel").addEventListener("click", async () => {
     const name = currentPresetName();
+    if (name === "Default") return;
+    if (!(await askConfirm(`¿Borrar el preset "${name}"? Tus ajustes actuales no cambian.`, "Borrar"))) return;
     try {
       await presets.remove(name);
       prefs.set("lastPreset", "Default");
-      await refreshPresets("Default");
-      await onPresetChange();
-      message(`Preset "${name}" borrado.`, "ok", 2500);
+      await refreshPresets("Default");   // solo cambia la selección: los ajustes se quedan como están
+      if (!presetWarning()) message(`Preset "${name}" borrado.`, "ok", 2500);
     } catch (e) { message(e.message, "warn"); }
   });
+
+  // Diálogos: Intro confirma, el botón principal solo se activa con un nombre válido
+  $("dlgPresetName").addEventListener("input", refreshPresetDialog);
+  $("dlgPresetName").addEventListener("keydown", e => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (presetNameOk()) dialogDone(true);
+  });
+  $("dlgPresetOk").addEventListener("click", e => { e.preventDefault(); if (presetNameOk()) dialogDone(true); });
+  $("dlgPresetCancel").addEventListener("click", e => { e.preventDefault(); dialogDone(false); });
+  $("dlgConfirmOk").addEventListener("click", e => { e.preventDefault(); dialogDone(true); });
+  $("dlgConfirmCancel").addEventListener("click", e => { e.preventDefault(); dialogDone(false); });
+
+  // Avisos: se pueden cerrar
+  onActivate($("msgClose"), () => message(""));
 
   // Acciones
   $("btnRun").addEventListener("click", onRun);
@@ -473,51 +665,115 @@ async function main() {
   await step("presets", async () => {
     await refreshPresets();
     Object.assign(S, await presets.load(currentPresetName()));
+    presetWarning();
   });
   await step("sync", () => { showStep(); syncUI(); });
   await step("tamaño", () => updateCurrentPrintSize(true));
   await step("eventos", () => events.init({
     onIdleChange: () => updateCurrentPrintSize(),
     onWorkClosed: () => { message("El documento de trabajo se cerró.", "warn"); resetToIdle(); },
-    onLock: lock,
-    onUnlock: unlock
+    onLock: () => lock(),
+    onUnlock: () => unlock()
   }));
 }
 
-// Cualquier error no controlado se muestra en el panel (facilita el diagnóstico en Photoshop)
-window.addEventListener("error", e => status(`Error: ${e.message}`));
-window.addEventListener("unhandledrejection", e => status(`Error: ${e.reason && e.reason.message ? e.reason.message : e.reason}`));
+// Cualquier error no controlado se avisa en el panel; el detalle va a la consola
+window.addEventListener("error", e => { console.log("Open-DTF:", e.error || e.message); status("Error inesperado del panel." + DETAILS); });
+window.addEventListener("unhandledrejection", e => { console.log("Open-DTF:", e.reason); status("Error inesperado del panel." + DETAILS); });
 
 main().catch(e => { console.log("Halftones DTF init:", e); status(e.message); });
 
 };
 defs["src/presets.js"] = function (module, exports, require) {
 const { storage } = require("uxp");
-const { DEFAULTS } = require("./state");
+const { DEFAULTS, HT_TYPES, CLEANUPS } = require("./state");
+const { clamp } = require("./util");
 
 const FILE = "presets.json";
 const KEYS = Object.keys(DEFAULTS);
 
 const clone = o => JSON.parse(JSON.stringify(o));
 
+let warning = null;     // aviso pendiente para el panel (archivo dañado)
+let readOnly = false;   // archivo ilegible y sin copia: no se sobrescribe
+
+// ---- Validación: tipos y rangos; lo que no encaja vuelve al valor por defecto ----
+function toNum(v, d, lo, hi) {
+  const n = typeof v === "number" ? v : (typeof v === "string" && v.trim() !== "" ? Number(v) : NaN);
+  return Number.isFinite(n) ? clamp(n, lo, hi) : d;
+}
+const toBool = (v, d) => (typeof v === "boolean" ? v : d);
+const oneOf = (v, list, d) => (list.includes(v) ? v : d);
+function toColor(v, d) {
+  if (!v || typeof v !== "object") return clone(d);
+  return { r: Math.round(toNum(v.r, d.r, 0, 255)), g: Math.round(toNum(v.g, d.g, 0, 255)), b: Math.round(toNum(v.b, d.b, 0, 255)) };
+}
+
 // Fusiona con los valores por defecto del código (autorreparación).
 function normalize(p) {
-  const out = clone(DEFAULTS);
-  for (const k of KEYS) if (p && p[k] !== undefined) out[k] = p[k];
+  const s = p && typeof p === "object" ? p : {};
+  const D = DEFAULTS;
+  const out = {
+    lpi: Math.round(toNum(s.lpi, D.lpi, 5, 234) * 10) / 10,
+    angle: toNum(s.angle, D.angle, -360, 360),
+    htType: oneOf(s.htType, HT_TYPES, D.htType),
+    halftone: toBool(s.halftone, D.halftone),
+    knockout: toBool(s.knockout, D.knockout),
+    knockoutColor: toColor(s.knockoutColor, D.knockoutColor),
+    shirt: toColor(s.shirt, D.shirt),
+    linked: toBool(s.linked, D.linked),
+    black: Math.round(toNum(s.black, D.black, 0, 253)),
+    gamma: Math.round(toNum(s.gamma, D.gamma, 0.01, 9.99) * 100) / 100,
+    outBlack: Math.round(toNum(s.outBlack, D.outBlack, 0, 255)),
+    shadow: Math.round(toNum(s.shadow, D.shadow, 0, 100)),
+    cleanup: oneOf(s.cleanup, CLEANUPS, D.cleanup),
+    defringe: toBool(s.defringe, D.defringe),
+    nativeFinal: toBool(s.nativeFinal, D.nativeFinal)
+  };
+  // Mismas restricciones que los sliders: negro < blanco - 2, mín ≤ máx
+  out.white = Math.round(clamp(toNum(s.white, D.white, 0, 255), out.black + 2, 255));
+  out.outWhite = Math.round(clamp(toNum(s.outWhite, D.outWhite, 0, 255), out.outBlack, 255));
+  for (const k of KEYS) if (!(k in out)) out[k] = clone(D[k]);   // claves nuevas de DEFAULTS
   return out;
 }
 
 async function readAll() {
+  const folder = await storage.localFileSystem.getDataFolder();
+  let entry;
   try {
-    const folder = await storage.localFileSystem.getDataFolder();
-    const entry = await folder.getEntry(FILE);
-    return JSON.parse(await entry.read());
+    entry = await folder.getEntry(FILE);
   } catch (e) {
+    return {};                                   // todavía no hay presets
+  }
+  let text = null;
+  try {
+    text = await entry.read();
+    const all = JSON.parse(text);
+    if (all && typeof all === "object" && !Array.isArray(all)) return all;
+  } catch (e) { /* ilegible o dañado: abajo */ }
+
+  // Dañado: se guarda una copia antes de empezar de cero (no se pierde en silencio)
+  if (readOnly) return {};
+  if (text === null) {
+    readOnly = true;
+    warning = "No se pudo leer el archivo de presets. No se guardarán cambios hasta reiniciar el panel.";
     return {};
   }
+  const bak = `presets.bak-${Date.now()}.json`;
+  try {
+    const copy = await folder.createFile(bak, { overwrite: true });
+    await copy.write(String(text));
+    await writeAll({});
+    warning = `El archivo de presets estaba dañado. Se guardó una copia (${bak}) y se empezó de cero.`;
+  } catch (e) {
+    readOnly = true;
+    warning = "El archivo de presets está dañado y no se pudo copiar. No se guardarán cambios para no perderlo.";
+  }
+  return {};
 }
 
 async function writeAll(all) {
+  if (readOnly) throw new Error(warning || "El archivo de presets no se puede escribir.");
   const folder = await storage.localFileSystem.getDataFolder();
   const entry = await folder.createFile(FILE, { overwrite: true });
   await entry.write(JSON.stringify(all, null, 2));
@@ -550,7 +806,14 @@ async function remove(name) {
   await writeAll(all);
 }
 
-module.exports = { list, load, save, remove };
+// Devuelve (una sola vez) el aviso pendiente, o null
+function takeWarning() {
+  const w = warning;
+  warning = null;
+  return w;
+}
+
+module.exports = { list, load, save, remove, normalize, takeWarning };
 
 };
 defs["src/ps/bp.js"] = function (module, exports, require) {
@@ -583,17 +846,23 @@ async function bp(descs) {
   return res;
 }
 
-// Wrapper modal. history:true suspende el historial del documento activo (una sola entrada).
-async function modal(name, fn, { history = false } = {}) {
+// Wrapper modal. history:true suspende el historial (una sola entrada) del documento docId, o del activo.
+// Si fn falla, la entrada se descarta (resumeHistory(hid, false)): el documento vuelve a como estaba.
+async function modal(name, fn, { history = false, docId = null } = {}) {
   return core.executeAsModal(async (ctx) => {
     let hid = null;
-    if (history && app.activeDocument) {
-      hid = await ctx.hostControl.suspendHistory({ documentID: app.activeDocument.id, name });
-    }
+    const id = docId || (app.activeDocument && app.activeDocument.id);
+    if (history && id) hid = await ctx.hostControl.suspendHistory({ documentID: id, name });
+    let ok = false;
     try {
-      return await fn(ctx);
+      const r = await fn(ctx);
+      ok = true;
+      return r;
     } finally {
-      if (hid !== null) await ctx.hostControl.resumeHistory(hid);
+      if (hid !== null) {
+        if (ok) await ctx.hostControl.resumeHistory(hid, true);
+        else { try { await ctx.hostControl.resumeHistory(hid, false); } catch (e) { console.log("Open-DTF: no se pudo revertir el historial:", e); } }
+      }
     }
   }, { commandName: name, interactive: false });
 }
@@ -631,16 +900,17 @@ const { state } = require("../state");
 
 const EVENTS = ["select", "close", "open", "imageSize", "canvasSize", "historyStateChanged"];
 
-// handlers: { onIdleChange(), onWorkClosed(), onLock(msg), onUnlock() }
+// handlers: { onIdleChange(), onWorkClosed(), onLock(), onUnlock() }
 function init(handlers) {
   action.addNotificationListener(EVENTS.map(e => ({ event: e })), (event) => {
     try {
-      if (state.phase === "RUNNING") return;
+      // Preparar / Aplicar / Cancelar cambian de documento a propósito: no bloquear ni resetear a mitad
+      if (state.phase !== "ACTIVE" && state.phase !== "IDLE") return;
       if (state.phase === "ACTIVE") {
         const stillOpen = app.documents.some(d => d.id === state.workDocId);
         if (!stillOpen) return handlers.onWorkClosed();
         if (app.activeDocument && app.activeDocument.id !== state.workDocId) {
-          return handlers.onLock("Vuelve al documento de trabajo o pulsa Cancelar");
+          return handlers.onLock();
         }
         handlers.onUnlock();
       } else {
@@ -791,7 +1061,7 @@ async function setShadowBoost(amount) {
 
 module.exports = {
   makeSolid, makeHueSatDesat, makeThreshold, makeLevels, setLevels, setSolid,
-  makeHalftoneLayer, setHalftoneParams, setShadowBoost, applyShadowBoost
+  makeHalftoneLayer, setHalftoneParams, setShadowBoost
 };
 
 };
@@ -803,13 +1073,25 @@ const L_ = require("./layers");
 const { refreshMask } = require("./mask");
 const { setPreviewMode } = require("./preview");
 
+function activeDocId() {
+  try { return app.activeDocument ? app.activeDocument.id : null; } catch (e) { return null; }
+}
+
+// Todos los IDs de capa del documento en un solo recorrido (cada lectura del DOM es una consulta al host)
+function collectIds(container, out = new Set()) {
+  for (const l of container.layers) {
+    out.add(l.id);
+    if (l.layers && l.layers.length) collectIds(l, out);
+  }
+  return out;
+}
+
 // Los IDs pueden desaparecer (deshacer, borrado manual): validar antes de operar.
 function validateState() {
   const doc = app.activeDocument;
   if (!doc || doc.id !== state.workDocId) throw new Error("WRONG_DOC");
-  for (const id of Object.values(state.layers)) {
-    if (!findLayer(doc, id)) throw new Error("MISSING_LAYERS");
-  }
+  const ids = collectIds(doc);
+  if (Object.values(state.layers).some(id => !ids.has(id))) throw new Error("MISSING_LAYERS");
 }
 
 async function replaceHalftone(s) {
@@ -827,20 +1109,30 @@ async function replaceHalftone(s) {
 // kinds: shirt, ko, levels, shadow, ht, htType, mask, preview
 const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask"];
 
-function sync(s, kinds) {
+async function sync(s, kinds) {
+  // Fuera del modal: con otro documento activo no se suspende el historial de nadie
+  if (activeDocId() !== state.workDocId) throw new Error("WRONG_DOC");
   return modal("Open-DTF: Ajuste en vivo", async () => {
     validateState();
     const L = state.layers;
-    if (kinds.has("shirt")) await L_.setSolid(L.shirt, s.shirt);
-    if (kinds.has("ko")) { await L_.setSolid(L.ko, s.knockoutColor); await L_.setSolid(L.mapBg, s.knockoutColor); }
-    if (kinds.has("levels")) await L_.setLevels(L.levels, s);
-    if (kinds.has("shadow")) await L_.setShadowBoost(s.shadow);
-    if (kinds.has("htType")) await replaceHalftone(s);
-    else if (kinds.has("ht")) await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
+    const before = { layers: { ...L }, shadowOn: state.shadowOn };
+    try {
+      if (kinds.has("shirt")) await L_.setSolid(L.shirt, s.shirt);
+      if (kinds.has("ko")) { await L_.setSolid(L.ko, s.knockoutColor); await L_.setSolid(L.mapBg, s.knockoutColor); }
+      if (kinds.has("levels")) await L_.setLevels(L.levels, s);
+      if (kinds.has("shadow")) await L_.setShadowBoost(s.shadow);
+      if (kinds.has("htType")) await replaceHalftone(s);
+      else if (kinds.has("ht")) await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
 
-    if (MASK_KINDS.some(k => kinds.has(k))) await refreshMask(s);   // restaura también la vista
-    else if (kinds.has("preview")) await setPreviewMode(state.previewMode);
-  }, { history: true });
+      if (MASK_KINDS.some(k => kinds.has(k))) await refreshMask(s);   // restaura también la vista
+      else if (kinds.has("preview")) await setPreviewMode(state.previewMode);
+    } catch (e) {
+      // modal() revierte el historial: los IDs y el estado de sombras vuelven con él
+      Object.assign(state.layers, before.layers);
+      state.shadowOn = before.shadowOn;
+      throw e;
+    }
+  }, { history: true, docId: state.workDocId });
 }
 
 module.exports = { validateState, sync, ALL_KINDS: ["shirt", "ko", "levels", "shadow", "htType", "mask"] };
@@ -1034,73 +1326,96 @@ async function discardWork(work) {
 async function cancelPrep() {
   const src = app.documents.find(d => d.id === state.srcDocId);
   const work = app.documents.find(d => d.id === state.workDocId);
-  await modal("Open-DTF: Cancelar", async () => {
-    if (work) await work.closeWithoutSaving();
-    if (src) app.activeDocument = src;
-  });
+  try {
+    await modal("Open-DTF: Cancelar", async () => {
+      if (work) await work.closeWithoutSaving();
+      if (src) app.activeDocument = src;
+    });
+  } catch (e) {
+    // Si el documento de trabajo sigue abierto no se resetea: el plugin no debe perder su referencia
+    if (work && app.documents.some(d => d.id === work.id)) throw e;
+    console.log("Open-DTF: cancelar:", e);
+  }
   resetState();
 }
 
 // ---- Aplicar -----------------------------------------------------------------
+// Devuelve el nombre del documento creado. Si falla, el documento de trabajo vuelve a su estado
+// anterior (historial suspendido y descartado) y se cierra el documento de salida a medias.
 async function applyPrep(s) {
+  let name = null;
   await modal("Open-DTF: Aplicar", async (ctx) => {
     const work = getWorkDoc();
     app.activeDocument = work;
     const L = state.layers;
-    ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
+    const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Open-DTF: Aplicar" });
+    let out = null;
+    try {
+      ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
 
-    // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
-    await refreshMask(s);
-    if (s.nativeFinal && s.halftone && s.knockout) {
-      try { await nativeScreenMask(s); }
-      catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
+      // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
+      await refreshMask(s);
+      if (s.nativeFinal && s.halftone && s.knockout) {
+        try { await nativeScreenMask(s); }
+        catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
+      }
+      checkCancel(ctx);
+
+      await selectLayer(L.art);
+      await bp({ _obj: "select", _target: [channel("mask")], makeVisible: false });
+      ctx.reportProgress({ value: 0.4, commandName: "Limpieza" });
+
+      // 2) Limpieza sobre la máscara
+      const radius = { none: null, standard: 0.6, high: 1.2 }[s.cleanup];
+      if (radius) {
+        if (s.cleanup === "high") await bp({ _obj: "median", radius: px(1) });
+        await bp([{ _obj: "gaussianBlur", radius: px(radius) }, { _obj: "thresholdClassEvent", level: 128 }]);
+      }
+      // 3) De-fringe: erosionar 1 px la máscara
+      if (s.defringe) {
+        await bp({ _obj: "minimum", radius: px(1),
+                   preserveShape: { _enum: "preserveShape", _value: "roundness" } });               // 🔍
+      }
+      checkCancel(ctx);
+      ctx.reportProgress({ value: 0.6, commandName: "Rasterizando" });
+
+      // 4) Rasterizar y aplicar la máscara
+      await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
+      await bp([
+        { _obj: "rasterizeLayer", _target: [layerById(L.art)] },
+        { _obj: "delete", _target: [channel("mask")], apply: true }
+      ]);
+      if (s.defringe) await bp({ _obj: "defringe", width: 1 });                                     // 🔍
+
+      // 5) Resultado: documento nuevo con una sola capa con alfa
+      name = baseName(work.title).replace(/ - Prep$/, "") + " - Prepped";
+      const layer = findLayer(work, L.art);
+      layer.name = name;
+      out = await app.documents.add({
+        width: work.width, height: work.height, resolution: work.resolution,
+        mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name
+      });
+      const copy = await layer.duplicate(out);                                                      // 🔍
+      for (const l of [...out.layers]) if (l.id !== copy.id) await l.delete();
+      await ctx.hostControl.resumeHistory(hid, true);
+    } catch (e) {
+      // Rollback: fuera el documento de salida incompleto y el trabajo vuelve a como estaba
+      if (out) { try { await out.closeWithoutSaving(); } catch (e2) { console.log("Open-DTF: no se pudo cerrar la salida:", e2); } }
+      try { await ctx.hostControl.resumeHistory(hid, false); } catch (e2) { console.log("Open-DTF: no se pudo revertir Aplicar:", e2); }
+      try { app.activeDocument = work; } catch (e2) { /* sin documento al que volver */ }
+      throw e;
     }
-    checkCancel(ctx);
 
-    await selectLayer(L.art);
-    await bp({ _obj: "select", _target: [channel("mask")], makeVisible: false });
-    ctx.reportProgress({ value: 0.4, commandName: "Limpieza" });
-
-    // 2) Limpieza sobre la máscara
-    const radius = { none: null, standard: 0.6, high: 1.2 }[s.cleanup];
-    if (radius) {
-      if (s.cleanup === "high") await bp({ _obj: "median", radius: px(1) });
-      await bp([{ _obj: "gaussianBlur", radius: px(radius) }, { _obj: "thresholdClassEvent", level: 128 }]);
-    }
-    // 3) De-fringe: erosionar 1 px la máscara
-    if (s.defringe) {
-      await bp({ _obj: "minimum", radius: px(1),
-                 preserveShape: { _enum: "preserveShape", _value: "roundness" } });                 // 🔍
-    }
-    checkCancel(ctx);
-    ctx.reportProgress({ value: 0.6, commandName: "Rasterizando" });
-
-    // 4) Rasterizar y aplicar la máscara
-    await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
-    await bp([
-      { _obj: "rasterizeLayer", _target: [layerById(L.art)] },
-      { _obj: "delete", _target: [channel("mask")], apply: true }
-    ]);
-    if (s.defringe) await bp({ _obj: "defringe", width: 1 });                                       // 🔍
-
-    // 5) Resultado: documento nuevo con una sola capa con alfa
-    const name = baseName(work.title).replace(/ - Prep$/, "") + " - Prepped";
-    const layer = findLayer(work, L.art);
-    layer.name = name;
-    const out = await app.documents.add({
-      width: work.width, height: work.height, resolution: work.resolution,
-      mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name
-    });
-    const copy = await layer.duplicate(out);                                                        // 🔍
-    for (const l of [...out.layers]) if (l.id !== copy.id) await l.delete();
-    await work.closeWithoutSaving();
-    app.activeDocument = out;
+    // El resultado ya existe: a partir de aquí un fallo no debe deshacerlo
+    try { await work.closeWithoutSaving(); } catch (e) { console.log("Open-DTF: no se pudo cerrar el documento de trabajo:", e); }
+    try { app.activeDocument = out; } catch (e) { /* ya es el activo */ }
     ctx.reportProgress({ value: 1, commandName: "Listo" });
   });
   resetState();
+  return name;
 }
 
-module.exports = { runPrep, applyPrep, cancelPrep, getWorkDoc };
+module.exports = { runPrep, applyPrep, cancelPrep };
 
 };
 defs["src/ps/preview.js"] = function (module, exports, require) {
@@ -1126,9 +1441,7 @@ async function setPreviewMode(mode) {
   await bp(previewDescs(mode));
 }
 
-const restorePreviewVisibility = () => setPreviewMode(state.previewMode);
-
-module.exports = { setPreviewMode, restorePreviewVisibility, previewDescs, vis };
+module.exports = { setPreviewMode, previewDescs, vis };
 
 };
 defs["src/ps/screen.js"] = function (module, exports, require) {
@@ -1143,41 +1456,49 @@ const SHAPES = { ROUND: "round", LINE: "line", DIAMOND: "diamond", ELLIPSE: "ell
 async function nativeScreenMask({ lpi, angle, htType }) {
   const work = app.activeDocument;
   const L = state.layers;
+  let tmp = null;
 
-  // 1) Composición de MAP GROUP sin la capa de motivo, a un documento temporal
-  await setVisible(L.halftone, false);
-  await bp([{ _obj: "hide", null: [layerById(L.art), layerById(L.shirt)] },
-            { _obj: "show", null: [layerById(L.mapGroup)] }]);
-  await bp({ _obj: "duplicate", _target: [{ _ref: "document", _enum: "ordinal", _value: "targetEnum" }],
-             name: "__ht_tmp", merged: true });                                                    // 🔍
-  const tmp = app.activeDocument;
+  try {
+    // 1) Composición de MAP GROUP sin la capa de motivo, a un documento temporal
+    await setVisible(L.halftone, false);
+    await bp([{ _obj: "hide", null: [layerById(L.art), layerById(L.shirt)] },
+              { _obj: "show", null: [layerById(L.mapGroup)] }]);
+    await bp({ _obj: "duplicate", _target: [{ _ref: "document", _enum: "ordinal", _value: "targetEnum" }],
+               name: "__ht_tmp", merged: true });                                                    // 🔍
+    tmp = app.activeDocument;
+    if (!tmp || tmp.id === work.id) { tmp = null; throw new Error("No se creó el documento temporal de trama"); }
 
-  // 2) Escala de grises -> Mapa de bits (trama de semitonos) -> Escala de grises
-  await bp([
-    { _obj: "convertMode", to: { _class: "grayscaleMode" } },
-    { _obj: "convertMode", to: { _obj: "bitmapMode",
-        resolution: { _unit: "densityUnit", _value: tmp.resolution },
-        method:     { _enum: "method", _value: "halftoneScreen" },
-        frequency:  { _unit: "densityUnit", _value: lpi },
-        angle:      { _unit: "angleUnit",   _value: angle },
-        shape:      { _enum: "shape", _value: SHAPES[htType] || "round" } } },                    // 🔍
-    { _obj: "convertMode", to: { _class: "grayscaleMode" }, ratio: 1 }                            // 🔍
-  ]);
+    // 2) Escala de grises -> Mapa de bits (trama de semitonos) -> Escala de grises
+    await bp([
+      { _obj: "convertMode", to: { _class: "grayscaleMode" } },
+      { _obj: "convertMode", to: { _obj: "bitmapMode",
+          resolution: { _unit: "densityUnit", _value: tmp.resolution },
+          method:     { _enum: "method", _value: "halftoneScreen" },
+          frequency:  { _unit: "densityUnit", _value: lpi },
+          angle:      { _unit: "angleUnit",   _value: angle },
+          shape:      { _enum: "shape", _value: SHAPES[htType] || "round" } } },                    // 🔍
+      { _obj: "convertMode", to: { _class: "grayscaleMode" }, ratio: 1 }                            // 🔍
+    ]);
 
-  // 3) Aplicar imagen desde el documento temporal a la máscara de ART (sin portapapeles)
-  app.activeDocument = work;
-  await selectLayer(L.art);
-  await bp([
-    { _obj: "select", _target: [channel("mask")], makeVisible: false },
-    { _obj: "applyImageEvent", with: { _obj: "calculation",
-        to: [channel("gray"), { _ref: "layer", _name: "Background" }, docById(tmp.id)],
-        calculation: { _enum: "calculationType", _value: "normal" } } }                           // 🔍
-  ]);
-  await tmp.closeWithoutSaving();
-  app.activeDocument = work;
-  await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
-  await bp({ _obj: "hide", null: [layerById(L.mapGroup)] });
-  await setVisible(L.halftone, true);
+    // 3) Aplicar imagen desde el documento temporal a la máscara de ART (sin portapapeles)
+    app.activeDocument = work;
+    await selectLayer(L.art);
+    await bp([
+      { _obj: "select", _target: [channel("mask")], makeVisible: false },
+      { _obj: "applyImageEvent", with: { _obj: "calculation",
+          to: [channel("gray"), { _ref: "layer", _name: "Background" }, docById(tmp.id)],
+          calculation: { _enum: "calculationType", _value: "normal" } } }                           // 🔍
+    ]);
+  } finally {
+    // Pase lo que pase: cerrar __ht_tmp y volver al documento de trabajo (el fallback opera sobre él)
+    if (tmp && app.documents.some(d => d.id === tmp.id)) {
+      try { await tmp.closeWithoutSaving(); } catch (e) { console.log("Open-DTF: no se pudo cerrar __ht_tmp:", e); }
+    }
+    app.activeDocument = work;
+    await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
+    await bp({ _obj: "hide", null: [layerById(L.mapGroup)] });
+    await setVisible(L.halftone, true);
+  }
 }
 
 module.exports = { nativeScreenMask };
@@ -1197,7 +1518,7 @@ const HT_TYPES = ["ROUND", "LINE", "DIAMOND", "ELLIPSE"];
 const CLEANUPS = ["none", "standard", "high"];
 
 const state = {
-  phase: "IDLE",          // IDLE | RUNNING | ACTIVE
+  phase: "IDLE",          // IDLE | RUNNING (Preparar) | ACTIVE (en vivo) | APPLYING | CANCELLING
   srcDocId: null,         // documento original (no se toca)
   workDocId: null,        // duplicado "<doc> - Prep"
   layers: {},             // IDs: art, shirt, mapGroup, mapArt, mapBg, ko, desat, levels, threshold, halftone
@@ -1242,7 +1563,7 @@ module.exports = { pickColor, toCss };
 defs["src/ui/levelsSlider.js"] = function (module, exports, require) {
 // Slider compuesto de 1 a 3 asas. Cada asa: { key, kind: "value" | "gamma" }.
 // "gamma" se posiciona entre las asas "black" y "white" en escala logarítmica.
-// onChange se llama en cada movimiento (tiempo real); onCommit al soltar.
+// onChange se llama en cada movimiento que cambia un valor (tiempo real); onCommit al soltar, si hubo cambio.
 const { clamp } = require("../util");
 
 function createSlider(root, { min, max, handles, constrain, fill = null, gradient = false, onChange, onCommit }) {
@@ -1251,13 +1572,14 @@ function createSlider(root, { min, max, handles, constrain, fill = null, gradien
   const fillEl = root.querySelector(".fill");
   const els = {};
   let drag = null;
+  let moved = false;     // el arrastre en curso cambió algún valor
 
   handles.forEach(h => {
     const el = document.createElement("div");
     el.className = "handle" + (h.kind === "gamma" ? " gamma" : "");
     root.appendChild(el);
     els[h.key] = el;
-    el.addEventListener("mousedown", e => { drag = h; e.preventDefault(); e.stopPropagation(); });
+    el.addEventListener("mousedown", e => { drag = h; moved = false; e.preventDefault(); e.stopPropagation(); });
   });
 
   const pctOf = v => ((clamp(v, min, max) - min) / (max - min)) * 100;
@@ -1287,13 +1609,23 @@ function createSlider(root, { min, max, handles, constrain, fill = null, gradien
   }
 
   function apply(h, val) {
+    const prev = values[h.key];
     if (h.kind === "gamma") {
       values.gamma = tToGamma(clamp((val - values.black) / Math.max(1, values.white - values.black), 0, 1));
     } else {
       values[h.key] = constrain(h.key, val, values);
     }
+    if (values[h.key] === prev) return;   // mismo valor redondeado: nada que sincronizar
+    moved = true;
     render();
     onChange({ ...values });
+  }
+
+  function endDrag() {
+    if (!drag) return;
+    drag = null;
+    if (moved && onCommit) onCommit({ ...values });
+    moved = false;
   }
 
   // Clic en la pista: mueve el asa más cercana y empieza a arrastrarla
@@ -1307,15 +1639,16 @@ function createSlider(root, { min, max, handles, constrain, fill = null, gradien
     }
     if (!best) return;
     drag = best;
+    moved = false;
     apply(best, val);
   });
 
-  document.addEventListener("mousemove", e => { if (drag) apply(drag, valueAt(e.clientX)); });
-  document.addEventListener("mouseup", () => {
+  document.addEventListener("mousemove", e => {
     if (!drag) return;
-    drag = null;
-    if (onCommit) onCommit({ ...values });
+    if (e.buttons === 0) return endDrag();   // se soltó fuera del panel: no seguir arrastrando
+    apply(drag, valueAt(e.clientX));
   });
+  document.addEventListener("mouseup", endDrag);
 
   return {
     set(v) { Object.assign(values, v); render(); },
@@ -1340,9 +1673,9 @@ const createOutputSlider = (root, onChange) => createSlider(root, {
   min: 0, max: 255, constrain: constrainOut, onChange, gradient: true, fill: ["outBlack", "outWhite"],
   handles: [{ key: "outBlack", kind: "value" }, { key: "outWhite", kind: "value" }] });
 
-// Slider de un valor (sombras, LPI, ángulo)
-const createValueSlider = (root, key, { min, max, stepBy = 1 }, onChange) => createSlider(root, {
-  min, max, onChange, fill: [null, key],
+// Slider de un valor (sombras, LPI, ángulo). onCommit (opcional): al soltar, para ajustes costosos
+const createValueSlider = (root, key, { min, max, stepBy = 1 }, onChange, onCommit) => createSlider(root, {
+  min, max, onChange, onCommit, fill: [null, key],
   constrain: (k, v) => clamp(+step(v, stepBy).toFixed(2), min, max),
   handles: [{ key, kind: "value" }] });
 
@@ -1371,36 +1704,17 @@ function debounce(fn, ms) {
   return wrapped;
 }
 
-// Serializa tareas asíncronas: la última pendiente sustituye a las intermedias.
-function createQueue() {
-  let running = false;
-  let next = null;
-  return async function enqueue(task) {
-    next = task;
-    if (running) return;
-    running = true;
-    try {
-      while (next) {
-        const t = next;
-        next = null;
-        await t();
-      }
-    } finally {
-      running = false;
-    }
-  };
-}
-
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-module.exports = { debounce, createQueue, clamp };
+module.exports = { debounce, clamp };
 
 };
   try {
     load("src/main.js");
   } catch (e) {
-    var el = document.getElementById("statusLine");
-    if (el) el.textContent = "Error de arranque: " + (e && e.message ? e.message : e);
+    var box = document.getElementById("msg"), txt = document.getElementById("msgText") || box;
+    if (txt) txt.textContent = "Error de arranque: " + (e && e.message ? e.message : e);
+    if (box) box.className = "banner error";
     console.log("Open-DTF boot:", e);
   }
 })(require);

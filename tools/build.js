@@ -44,8 +44,9 @@ ${defs.join("\n")}
   try {
     load("src/main.js");
   } catch (e) {
-    var el = document.getElementById("statusLine");
-    if (el) el.textContent = "Error de arranque: " + (e && e.message ? e.message : e);
+    var box = document.getElementById("msg"), txt = document.getElementById("msgText") || box;
+    if (txt) txt.textContent = "Error de arranque: " + (e && e.message ? e.message : e);
+    if (box) box.className = "banner error";
     console.log("Open-DTF boot:", e);
   }
 })(require);

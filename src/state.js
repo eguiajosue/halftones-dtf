@@ -11,7 +11,7 @@ const HT_TYPES = ["ROUND", "LINE", "DIAMOND", "ELLIPSE"];
 const CLEANUPS = ["none", "standard", "high"];
 
 const state = {
-  phase: "IDLE",          // IDLE | RUNNING | ACTIVE
+  phase: "IDLE",          // IDLE | RUNNING (Preparar) | ACTIVE (en vivo) | APPLYING | CANCELLING
   srcDocId: null,         // documento original (no se toca)
   workDocId: null,        // duplicado "<doc> - Prep"
   layers: {},             // IDs: art, shirt, mapGroup, mapArt, mapBg, ko, desat, levels, threshold, halftone

@@ -13,8 +13,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Regla nativa y sintaxis
+      - name: Regla nativa, compatibilidad UXP y sintaxis
         run: npm run check
+      - name: Tests de comportamiento (sin Photoshop)
+        run: npm test
       - name: main.js está al día con src/
         run: |
           npm run build

@@ -138,70 +138,93 @@ async function discardWork(work) {
 async function cancelPrep() {
   const src = app.documents.find(d => d.id === state.srcDocId);
   const work = app.documents.find(d => d.id === state.workDocId);
-  await modal("Open-DTF: Cancelar", async () => {
-    if (work) await work.closeWithoutSaving();
-    if (src) app.activeDocument = src;
-  });
+  try {
+    await modal("Open-DTF: Cancelar", async () => {
+      if (work) await work.closeWithoutSaving();
+      if (src) app.activeDocument = src;
+    });
+  } catch (e) {
+    // Si el documento de trabajo sigue abierto no se resetea: el plugin no debe perder su referencia
+    if (work && app.documents.some(d => d.id === work.id)) throw e;
+    console.log("Open-DTF: cancelar:", e);
+  }
   resetState();
 }
 
 // ---- Aplicar -----------------------------------------------------------------
+// Devuelve el nombre del documento creado. Si falla, el documento de trabajo vuelve a su estado
+// anterior (historial suspendido y descartado) y se cierra el documento de salida a medias.
 async function applyPrep(s) {
+  let name = null;
   await modal("Open-DTF: Aplicar", async (ctx) => {
     const work = getWorkDoc();
     app.activeDocument = work;
     const L = state.layers;
-    ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
+    const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Open-DTF: Aplicar" });
+    let out = null;
+    try {
+      ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
 
-    // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
-    await refreshMask(s);
-    if (s.nativeFinal && s.halftone && s.knockout) {
-      try { await nativeScreenMask(s); }
-      catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
+      // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
+      await refreshMask(s);
+      if (s.nativeFinal && s.halftone && s.knockout) {
+        try { await nativeScreenMask(s); }
+        catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
+      }
+      checkCancel(ctx);
+
+      await selectLayer(L.art);
+      await bp({ _obj: "select", _target: [channel("mask")], makeVisible: false });
+      ctx.reportProgress({ value: 0.4, commandName: "Limpieza" });
+
+      // 2) Limpieza sobre la máscara
+      const radius = { none: null, standard: 0.6, high: 1.2 }[s.cleanup];
+      if (radius) {
+        if (s.cleanup === "high") await bp({ _obj: "median", radius: px(1) });
+        await bp([{ _obj: "gaussianBlur", radius: px(radius) }, { _obj: "thresholdClassEvent", level: 128 }]);
+      }
+      // 3) De-fringe: erosionar 1 px la máscara
+      if (s.defringe) {
+        await bp({ _obj: "minimum", radius: px(1),
+                   preserveShape: { _enum: "preserveShape", _value: "roundness" } });               // 🔍
+      }
+      checkCancel(ctx);
+      ctx.reportProgress({ value: 0.6, commandName: "Rasterizando" });
+
+      // 4) Rasterizar y aplicar la máscara
+      await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
+      await bp([
+        { _obj: "rasterizeLayer", _target: [layerById(L.art)] },
+        { _obj: "delete", _target: [channel("mask")], apply: true }
+      ]);
+      if (s.defringe) await bp({ _obj: "defringe", width: 1 });                                     // 🔍
+
+      // 5) Resultado: documento nuevo con una sola capa con alfa
+      name = baseName(work.title).replace(/ - Prep$/, "") + " - Prepped";
+      const layer = findLayer(work, L.art);
+      layer.name = name;
+      out = await app.documents.add({
+        width: work.width, height: work.height, resolution: work.resolution,
+        mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name
+      });
+      const copy = await layer.duplicate(out);                                                      // 🔍
+      for (const l of [...out.layers]) if (l.id !== copy.id) await l.delete();
+      await ctx.hostControl.resumeHistory(hid, true);
+    } catch (e) {
+      // Rollback: fuera el documento de salida incompleto y el trabajo vuelve a como estaba
+      if (out) { try { await out.closeWithoutSaving(); } catch (e2) { console.log("Open-DTF: no se pudo cerrar la salida:", e2); } }
+      try { await ctx.hostControl.resumeHistory(hid, false); } catch (e2) { console.log("Open-DTF: no se pudo revertir Aplicar:", e2); }
+      try { app.activeDocument = work; } catch (e2) { /* sin documento al que volver */ }
+      throw e;
     }
-    checkCancel(ctx);
 
-    await selectLayer(L.art);
-    await bp({ _obj: "select", _target: [channel("mask")], makeVisible: false });
-    ctx.reportProgress({ value: 0.4, commandName: "Limpieza" });
-
-    // 2) Limpieza sobre la máscara
-    const radius = { none: null, standard: 0.6, high: 1.2 }[s.cleanup];
-    if (radius) {
-      if (s.cleanup === "high") await bp({ _obj: "median", radius: px(1) });
-      await bp([{ _obj: "gaussianBlur", radius: px(radius) }, { _obj: "thresholdClassEvent", level: 128 }]);
-    }
-    // 3) De-fringe: erosionar 1 px la máscara
-    if (s.defringe) {
-      await bp({ _obj: "minimum", radius: px(1),
-                 preserveShape: { _enum: "preserveShape", _value: "roundness" } });                 // 🔍
-    }
-    checkCancel(ctx);
-    ctx.reportProgress({ value: 0.6, commandName: "Rasterizando" });
-
-    // 4) Rasterizar y aplicar la máscara
-    await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
-    await bp([
-      { _obj: "rasterizeLayer", _target: [layerById(L.art)] },
-      { _obj: "delete", _target: [channel("mask")], apply: true }
-    ]);
-    if (s.defringe) await bp({ _obj: "defringe", width: 1 });                                       // 🔍
-
-    // 5) Resultado: documento nuevo con una sola capa con alfa
-    const name = baseName(work.title).replace(/ - Prep$/, "") + " - Prepped";
-    const layer = findLayer(work, L.art);
-    layer.name = name;
-    const out = await app.documents.add({
-      width: work.width, height: work.height, resolution: work.resolution,
-      mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name
-    });
-    const copy = await layer.duplicate(out);                                                        // 🔍
-    for (const l of [...out.layers]) if (l.id !== copy.id) await l.delete();
-    await work.closeWithoutSaving();
-    app.activeDocument = out;
+    // El resultado ya existe: a partir de aquí un fallo no debe deshacerlo
+    try { await work.closeWithoutSaving(); } catch (e) { console.log("Open-DTF: no se pudo cerrar el documento de trabajo:", e); }
+    try { app.activeDocument = out; } catch (e) { /* ya es el activo */ }
     ctx.reportProgress({ value: 1, commandName: "Listo" });
   });
   resetState();
+  return name;
 }
 
-module.exports = { runPrep, applyPrep, cancelPrep, getWorkDoc };
+module.exports = { runPrep, applyPrep, cancelPrep };
