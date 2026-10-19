@@ -205,10 +205,10 @@ Es una superficie de captación (modo Persuade) pensada para diseñadores indepe
 Paleta de proceso de imprenta: un negro, un papel y tres tintas, cada una dueña de una región.
 
 ### Primary
-- **Process Cyan** (#00aeef): campo de la sección de descarga. Texto K encima (8:1).
+- **Process Cyan** (#00aeef): campo de la sección de descarga. Texto K encima (7,8:1).
 
 ### Secondary
-- **Process Magenta** (#ec008c): campo de la sección de contribuir. Texto K encima (5,4:1); solo para texto grande y enlaces de 22 px.
+- **Process Magenta** (#ec008c): campo de la sección de contribuir. Texto K encima (4,6:1: cumple AA justo); solo para texto grande y enlaces de 22 px.
 
 ### Tertiary
 - **Process Yellow** (#ffe600): campo de la sección "por qué". También el interruptor activo del demo y el tercer punto de la marca.
@@ -248,7 +248,7 @@ Paleta de proceso de imprenta: un negro, un papel y tres tintas, cada una dueña
 
 Un pliego a ancho completo. Gutter fluido `clamp(20px, 5vw, 72px)` aplicado en cada sección; contenido de tipo "wrap" a 1180 px como máximo. Escala de espacio de base 4 (4, 8, 16, 24, 40, 72) más un relleno vertical de sección fluido de 88 a 152 px. Más espacio sobre un título que debajo. La portada es una sola pantalla: titular abajo a la izquierda sobre la escena 3D, anotación de demo abajo a la derecha, marcas de corte en las cuatro esquinas, línea de pie arriba y barra de color cerrando el pliego.
 
-Responsive: bajo 900 px desaparece la navegación de texto, la anotación de demo pasa a flujo normal bajo el texto y los pasos de la historia ganan un fondo negro al 86 % para leerse sobre la escena. Bajo 520 px se oculta el botón de descarga del menú. Los campos de tinta se apilan sin cambios de contenido.
+Responsive: bajo 900 px desaparece la navegación de texto, la anotación de demo pasa a flujo normal bajo el texto y los pasos de la historia ganan un fondo negro al 86 % para leerse sobre la escena. Bajo 520 px el botón de descarga del menú se mantiene en versión compacta (objetivo táctil de 44 px). Los campos de tinta se apilan sin cambios de contenido.
 
 ## Elevation & Depth
 
@@ -295,7 +295,7 @@ Rectilíneo, como una plancha: radio de 2 px en botones, 0 en paneles, bordes de
 ### Do:
 - **Do** dar a cada tinta de proceso una región entera de la página.
 - **Do** usar bordes de 1,5 px en K en lugar de sombras.
-- **Do** mantener el negro K en texto sobre cian, magenta y amarillo (≥5,4:1).
+- **Do** mantener el negro K en texto sobre cian, magenta y amarillo (≥4,6:1; magenta es el más justo, no bajar de 22 px/600).
 - **Do** usar la barra de color y las marcas de corte como estructura, no como adorno suelto.
 - **Do** respetar `prefers-reduced-motion`: sin el registro de la titular ni el fundido de pasos.
 

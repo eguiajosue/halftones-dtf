@@ -1,21 +1,34 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" class="no-js">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-eTOJgkjUMR9tZ2EpyJgH2GtlrxRBMVJXAQkWKiuHspg=' 'sha256-nh9LVh6SEz6CKKGDaZD8+mdwR7dtJb3BsV5bAz5F1x4='; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'self'; form-action 'none'" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <script>document.documentElement.className = document.documentElement.className.replace("no-js", "js");</script>
   <title>Open-DTF — Semitonos DTF gratis y de código abierto para Photoshop</title>
   <meta name="description" content="Open-DTF es un plugin libre (MIT) para Photoshop que prepara tus diseños para impresión DTF: semitonos, knockout del color de la prenda y ajustes en vivo." />
   <meta property="og:title" content="Open-DTF — Semitonos DTF de código abierto" />
   <meta property="og:description" content="Plugin libre para Photoshop: semitonos, knockout y ajustes en vivo para DTF. Sin licencias ni suscripciones." />
   <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://eguiajosue.github.io/halftones-dtf/" />
+  <meta property="og:site_name" content="Open-DTF" />
+  <meta property="og:locale" content="es_ES" />
+  <meta property="og:locale:alternate" content="en_US" />
+  <meta name="twitter:card" content="summary" />
+  <link rel="canonical" href="https://eguiajosue.github.io/halftones-dtf/" />
   <meta name="theme-color" content="#f4f5f3" />
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="assets/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="preload" href="assets/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/instrument-serif-italic.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="assets/styles.css" />
   <script type="importmap">
-    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+    { "imports": { "three": "./assets/vendor/three@0.160.0/build/three.module.min.js", "three/addons/": "./assets/vendor/three@0.160.0/examples/jsm/" } }
   </script>
+  <link rel="modulepreload" href="assets/ui.js" />
+  <link rel="modulepreload" href="assets/scene.js" />
+  <link rel="modulepreload" href="assets/vendor/three@0.160.0/build/three.module.min.js" />
 </head>
 <body>
   <a class="skip" href="#main" data-i18n="skip">Saltar al contenido</a>
@@ -28,14 +41,14 @@
       <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
       <span class="wordmark"><em>Open</em>-DTF</span>
     </a>
-    <nav class="nav-links" aria-label="Principal">
+    <nav class="nav-links" aria-label="Principal" data-i18n-attr="aria-label:nav.label">
       <a href="#how" data-i18n="nav.how">Cómo funciona</a>
       <a href="#why" data-i18n="nav.why">Por qué</a>
       <a href="#faq" data-i18n="nav.faq">Preguntas</a>
       <a href="https://github.com/eguiajosue/halftones-dtf" rel="noopener">GitHub</a>
     </nav>
     <div class="nav-right">
-      <button class="lang" id="langToggle" type="button" aria-label="Cambiar idioma / Change language">EN</button>
+      <button class="lang" id="langToggle" type="button" lang="en" aria-label="EN, switch to English">EN</button>
       <a class="btn btn-small" href="#download" data-i18n="nav.download">Descargar</a>
     </div>
   </header>
@@ -47,18 +60,18 @@
       <span class="crop tl" aria-hidden="true"></span><span class="crop tr" aria-hidden="true"></span>
       <span class="crop bl" aria-hidden="true"></span><span class="crop br" aria-hidden="true"></span>
       <svg class="reg" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="12" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="24" cy="24" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M24 2v44M2 24h44" stroke="currentColor" stroke-width="1.5"/></svg>
-      <p class="slug" aria-hidden="true"><span>Open-DTF · check print</span><span class="slug-plates"><i class="pc"></i><i class="pm"></i><i class="py"></i><i class="pk"></i></span><span>30 LPI · 33° · MIT</span></p>
+      <p class="slug" aria-hidden="true"><span data-i18n="slug">Open-&#8288;DTF · prueba de impresión</span><span class="slug-plates"><i class="pc"></i><i class="pm"></i><i class="py"></i><i class="pk"></i></span><span>30 LPI · 33° · MIT</span></p>
 
       <div class="hero-copy">
         <h1 class="hero-title">
           <span data-i18n="hero.t1">Semitonos DTF</span>
           <em data-i18n="hero.t2">sin pagar licencias.</em>
         </h1>
-        <p class="hero-sub" data-i18n="hero.sub">Open-DTF convierte tu diseño en una trama lista para película DTF: elimina el color de la prenda, genera los puntos y te deja ajustarlo todo en vivo. Gratis y con el código a la vista.</p>
+        <p class="hero-sub" data-i18n="hero.sub">Open-&#8288;DTF convierte tu diseño en una trama lista para película DTF: elimina el color de la prenda, genera los puntos y te deja ajustarlo todo en vivo. Gratis y con el código a la vista.</p>
         <div class="hero-cta">
           <a class="btn" id="heroDownload" href="#download">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v9m0 0L4.5 7M8 10.5 11.5 7M2 13.5h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span data-i18n="hero.cta">Descargar Open-DTF</span>
+            <span data-i18n="hero.cta">Descargar Open-&#8288;DTF</span>
           </a>
           <a class="btn btn-ghost" href="https://github.com/eguiajosue/halftones-dtf" rel="noopener" data-i18n="hero.code">Ver el código</a>
         </div>
@@ -70,13 +83,13 @@
         <p class="demo-title" id="demoTitle" data-i18n="demo.title">Pruébalo aquí: mueve la trama</p>
         <label class="demo-row">
           <span data-i18n="demo.lpi">Frecuencia</span>
-          <input type="range" id="demoLpi" min="15" max="60" step="1" value="28" />
-          <output id="demoLpiOut">28 LPI</output>
+          <input type="range" id="demoLpi" min="15" max="60" step="1" value="28" aria-valuetext="28 LPI" />
+          <output id="demoLpiOut" aria-hidden="true">28 LPI</output>
         </label>
         <label class="demo-row">
           <span data-i18n="demo.angle">Ángulo</span>
-          <input type="range" id="demoAngle" min="0" max="90" step="0.5" value="33" />
-          <output id="demoAngleOut">33°</output>
+          <input type="range" id="demoAngle" min="0" max="90" step="0.5" value="33" aria-valuetext="33°" />
+          <output id="demoAngleOut" aria-hidden="true">33°</output>
         </label>
         <div class="demo-row demo-shape">
           <span id="demoShapeLbl" data-i18n="demo.shape">Forma</span>
@@ -90,15 +103,14 @@
         <label class="demo-row">
           <span data-i18n="demo.black">Negro</span>
           <input type="range" id="demoBlack" min="0" max="120" step="1" value="5" />
-          <output id="demoBlackOut">5</output>
+          <output id="demoBlackOut" aria-hidden="true">5</output>
         </label>
         <label class="demo-row">
           <span data-i18n="demo.white">Blanco</span>
           <input type="range" id="demoWhite" min="100" max="255" step="1" value="184" />
-          <output id="demoWhiteOut">184</output>
+          <output id="demoWhiteOut" aria-hidden="true">184</output>
         </label>
       </div>
-      <a class="scroll-cue" href="#how" aria-label="Ver cómo funciona"><span></span></a>
       <div class="colorbar" aria-hidden="true"><i class="c"></i><i class="m"></i><i class="y"></i><i class="k"></i><i class="r"></i><i class="g"></i><i class="b"></i><i class="t25"></i><i class="t50"></i><i class="t75"></i></div>
     </section>
 
@@ -109,11 +121,11 @@
       <article class="step plate-c" data-story="1">
         <span class="step-n">01</span>
         <h3 data-i18n="s1.t">Abre tu diseño y elige el tamaño</h3>
-        <p data-i18n="s1.p">Abre el arte en Photoshop. Open-DTF lee el lienzo y te propone el tamaño de impresión a 300 ppi; cambia el ancho y el alto se ajusta en proporción.</p>
+        <p data-i18n="s1.p">Abre el arte en Photoshop. Open-&#8288;DTF lee el lienzo y te propone el tamaño de impresión a 300 ppi; cambia el ancho y el alto se ajusta en proporción.</p>
         <div class="mini" aria-hidden="true">
-          <div class="mini-h">Tamaño de impresión</div>
+          <div class="mini-h" data-i18n="mini.size">Tamaño de impresión</div>
           <div class="mini-row"><span class="mini-field">25.11</span><span class="mini-x">×</span><span class="mini-field">38.00</span><span class="mini-unit">cm</span></div>
-          <div class="mini-note">Proporción bloqueada · 300 ppi</div>
+          <div class="mini-note" data-i18n="mini.lock">Proporción bloqueada · 300 ppi</div>
         </div>
       </article>
 
@@ -122,10 +134,10 @@
         <h3 data-i18n="s2.t">Elige la trama y pulsa Preparar</h3>
         <p data-i18n="s2.p">Punto, línea, diamante o elipse; frecuencia en LPI y ángulo. Al preparar, el plugin duplica tu documento y monta la trama con funciones nativas de Photoshop. Tu original no se toca.</p>
         <div class="mini" aria-hidden="true">
-          <div class="mini-seg"><b>Punto</b><span>Línea</span><span>Diamante</span><span>Elipse</span></div>
-          <div class="mini-slider"><i style="left:34%"></i></div>
-          <div class="mini-row"><span class="mini-lbl">Frecuencia</span><span class="mini-field">30</span><span class="mini-lbl">Ángulo</span><span class="mini-field">33</span></div>
-          <div class="mini-btn">Preparar</div>
+          <div class="mini-seg"><b data-i18n="sh.round">Punto</b><span data-i18n="sh.line">Línea</span><span data-i18n="sh.diamond">Diamante</span><span data-i18n="sh.ellipse">Elipse</span></div>
+          <div class="mini-slider"><i class="pos-34"></i></div>
+          <div class="mini-row"><span class="mini-lbl" data-i18n="demo.lpi">Frecuencia</span><span class="mini-field">30</span><span class="mini-lbl" data-i18n="demo.angle">Ángulo</span><span class="mini-field">33</span></div>
+          <div class="mini-btn" data-i18n="mini.prep">Preparar</div>
         </div>
       </article>
 
@@ -135,7 +147,7 @@
         <p data-i18n="s3.p">Elige el color que no quieres imprimir, por ejemplo el negro de una camiseta negra. Desaparece, y las transiciones hacia él se convierten en puntos: sin cajas ni halos alrededor del diseño.</p>
         <div class="mini" aria-hidden="true">
           <div class="mini-h">Knockout</div>
-          <div class="mini-row"><span class="mini-sw"></span><span class="mini-sw"></span><span class="mini-check"></span><span class="mini-lbl">Mismo color</span></div>
+          <div class="mini-row"><span class="mini-sw"></span><span class="mini-sw"></span><span class="mini-check"></span><span class="mini-lbl" data-i18n="mini.same">Mismo color</span></div>
         </div>
       </article>
 
@@ -144,9 +156,9 @@
         <h3 data-i18n="s4.t">Ajústalo en vivo</h3>
         <p data-i18n="s4.p">Niveles, realce de sombras, frecuencia y ángulo se aplican mientras arrastras. Cambia entre las vistas Original, Prenda, Alfa y Máscara para revisar el resultado.</p>
         <div class="mini" aria-hidden="true">
-          <div class="mini-h">Tonos <b class="mini-live">En vivo</b></div>
-          <div class="mini-slider mini-grad"><i style="left:3%"></i><i id="miniWhite" style="left:40%"></i></div>
-          <div class="mini-row"><span class="mini-lbl">Blanco</span><span class="mini-field" id="miniWhiteVal">100</span></div>
+          <div class="mini-h"><span data-i18n="mini.tones">Tonos</span> <b class="mini-live" data-i18n="mini.live">En vivo</b></div>
+          <div class="mini-slider mini-grad"><i class="pos-3"></i><i id="miniWhite" class="pos-40"></i></div>
+          <div class="mini-row"><span class="mini-lbl" data-i18n="demo.white">Blanco</span><span class="mini-field" id="miniWhiteVal">100</span></div>
         </div>
       </article>
 
@@ -155,8 +167,8 @@
         <h3 data-i18n="s5.t">Aplica y exporta</h3>
         <p data-i18n="s5.p">Aplicar crea un documento nuevo con una sola capa con transparencia, limpia de puntos sueltos. Expórtala a PNG y llévala a tu RIP.</p>
         <div class="mini" aria-hidden="true">
-          <div class="mini-layer"><span class="mini-thumb"></span><span>diseño - Prepped</span></div>
-          <div class="mini-btn">Aplicar</div>
+          <div class="mini-layer"><span class="mini-thumb"></span><span data-i18n="mini.layer">diseño - Prepped</span></div>
+          <div class="mini-btn" data-i18n="mini.apply">Aplicar</div>
         </div>
       </article>
     </section>
@@ -165,7 +177,7 @@
     <section class="why solid" id="why" aria-labelledby="whyTitle">
       <div class="wrap">
         <h2 class="why-title" id="whyTitle" data-i18n-html="why.title">Preparar un DTF no debería costar <em>una licencia al año.</em></h2>
-        <p class="why-lead" data-i18n="why.lead">Los plugins de pago para semitonos cobran por equipo o por suscripción. Open-DTF hace el mismo trabajo de base con herramientas que ya tienes en Photoshop, y cualquiera puede leer, mejorar o adaptar su código.</p>
+        <p class="why-lead" data-i18n="why.lead">Los plugins de pago para semitonos cobran por equipo o por suscripción. Open-&#8288;DTF hace el mismo trabajo de base con herramientas que ya tienes en Photoshop, y cualquiera puede leer, mejorar o adaptar su código.</p>
         <dl class="facts">
           <div><dt data-i18n="f1.t">0 € para siempre</dt><dd data-i18n="f1.d">Sin suscripciones, sin activaciones y sin límite de equipos.</dd></div>
           <div><dt data-i18n="f2.t">Código abierto (MIT)</dt><dd data-i18n="f2.d">Úsalo en tu taller, modifícalo o intégralo en tu flujo. Solo conserva el aviso de licencia.</dd></div>
@@ -181,7 +193,7 @@
     <section class="download solid" id="download" aria-labelledby="dlTitle">
       <div class="wrap dl-grid">
         <div class="dl-main">
-          <h2 id="dlTitle" data-i18n="dl.title">Descarga Open-DTF</h2>
+          <h2 id="dlTitle" data-i18n="dl.title">Descarga Open-&#8288;DTF</h2>
           <p class="dl-version"><span id="dlVersion" data-i18n="dl.latest">Última versión</span><span id="dlDate"></span></p>
           <a class="btn btn-big" id="dlButton" href="https://github.com/eguiajosue/halftones-dtf/releases/latest/download/OpenDTF.ccx">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v9m0 0L4.5 7M8 10.5 11.5 7M2 13.5h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -197,7 +209,7 @@
           <ol>
             <li data-i18n-html="dl.i1">Descarga el archivo <code>.ccx</code>.</li>
             <li data-i18n="dl.i2">Haz doble clic: Creative Cloud lo instala y te pedirá confirmar, porque no viene del Marketplace.</li>
-            <li data-i18n-html="dl.i3">Abre Photoshop y ve a <code>Plugins › Open-DTF</code>.</li>
+            <li data-i18n-html="dl.i3">Abre Photoshop y ve a <code>Plugins › Open-&#8288;DTF</code>.</li>
           </ol>
         </div>
       </div>
@@ -208,11 +220,11 @@
       <div class="wrap">
         <h2 id="faqTitle" data-i18n="faq.title">Preguntas frecuentes</h2>
         <div class="faq-list">
-          <details><summary data-i18n="q1">¿De verdad es gratis?</summary><p data-i18n="a1">Sí. Open-DTF se publica con licencia MIT: puedes usarlo en tu negocio, instalarlo en todos tus equipos y modificarlo sin pagar nada.</p></details>
+          <details><summary data-i18n="q1">¿De verdad es gratis?</summary><p data-i18n="a1">Sí. Open-&#8288;DTF se publica con licencia MIT: puedes usarlo en tu negocio, instalarlo en todos tus equipos y modificarlo sin pagar nada.</p></details>
           <details><summary data-i18n="q2">¿Qué versión de Photoshop necesito?</summary><p data-i18n="a2">Photoshop 2022 (23.3) o posterior. Es un plugin UXP, el sistema de plugins actual de Adobe.</p></details>
           <details><summary data-i18n="q3">¿Funciona en Mac?</summary><p data-i18n="a3">Los plugins UXP funcionan en Windows y macOS, y el plugin no usa nada específico de un sistema. Hasta ahora se ha probado en Windows; si lo usas en Mac, cuéntanos cómo te va en los issues.</p></details>
           <details><summary data-i18n="q4">¿Modifica mi archivo original?</summary><p data-i18n="a4">No. Al preparar trabaja en un duplicado llamado «diseño - Prep». Al aplicar crea un documento nuevo «diseño - Prepped». Si cancelas, el duplicado se cierra.</p></details>
-          <details><summary data-i18n="q5">¿Sustituye a mi RIP?</summary><p data-i18n="a5">No. Open-DTF prepara la imagen (trama, knockout y transparencia). La gestión de tintas, el blanco de base y la impresión siguen siendo trabajo de tu RIP.</p></details>
+          <details><summary data-i18n="q5">¿Sustituye a mi RIP?</summary><p data-i18n="a5">No. Open-&#8288;DTF prepara la imagen (trama, knockout y transparencia). La gestión de tintas, el blanco de base y la impresión siguen siendo trabajo de tu RIP.</p></details>
           <details><summary data-i18n="q6">¿Qué frecuencia (LPI) uso?</summary><p data-i18n="a6">Empieza con 30 LPI, el valor por defecto, y ajusta según tu impresora y la tela: más LPI da puntos más finos; menos LPI, puntos más grandes y tacto más suave.</p></details>
           <details><summary data-i18n="q7">¿Puedo quitar un color que no sea negro?</summary><p data-i18n="a7">Sí. El knockout acepta cualquier color: el de una camiseta roja, un fondo blanco o lo que elijas con el cuentagotas de Photoshop.</p></details>
           <details><summary data-i18n="q8">¿Envía mis diseños a algún servidor?</summary><p data-i18n="a8">No. El plugin no declara permisos de red, así que Photoshop no le permite conectarse a internet. Todo ocurre en tu equipo.</p></details>
@@ -239,11 +251,11 @@
     <div class="wrap foot-row">
       <span class="brand small"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span><span class="wordmark"><em>Open</em>-DTF</span></span>
       <span class="foot-text"><span data-i18n="foot.l">Licencia MIT · No afiliado a Adobe. Photoshop es una marca de Adobe.</span>
-        <span class="foot-credit" data-i18n-html="foot.c">Modelo 3D «<a href="https://sketchfab.com/3d-models/t-shirt-3d-model-free-408000a9975a4c34866b42dfaca4fa75" rel="noopener">T-SHIRT 3D Model Free</a>» de <a href="https://sketchfab.com/MohammadRajabloo" rel="noopener">Mohammad Rajabloo</a>, licencia <a href="http://creativecommons.org/licenses/by/4.0/" rel="noopener">CC BY 4.0</a>. Modificado: reparado y simplificado para la web.</span></span>
+        <span class="foot-credit" data-i18n-html="foot.c">Modelo 3D «<a href="https://sketchfab.com/3d-models/t-shirt-3d-model-free-408000a9975a4c34866b42dfaca4fa75" rel="noopener">T-SHIRT 3D Model Free</a>» de <a href="https://sketchfab.com/MohammadRajabloo" rel="noopener">Mohammad Rajabloo</a>, licencia <a href="https://creativecommons.org/licenses/by/4.0/" rel="noopener">CC BY 4.0</a>. Modificado: reparado y simplificado para la web.</span></span>
     </div>
   </footer>
 
   <script src="assets/i18n.js"></script>
-  <script type="module" src="assets/app.js"></script>
+  <script type="module" src="assets/ui.js"></script>
 </body>
 </html>

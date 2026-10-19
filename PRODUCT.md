@@ -7,7 +7,7 @@
 web
 
 ## Stack
-Existing codebase: plain static HTML/CSS/JS in `site/`, published with GitHub Pages (GitHub Actions). Three.js loaded from a CDN via import map. No build step. Bilingual ES/EN through `site/assets/i18n.js`.
+Existing codebase: plain static HTML/CSS/JS in `site/`, published with GitHub Pages (GitHub Actions). Three.js r160 self-hosted in `site/assets/vendor/` and loaded via import map (scene loaded lazily; UI works without it). No build step. Bilingual ES/EN through `site/assets/i18n.js`.
 
 ## Users
 Independent designers and small apparel brands who prepare their own artwork for DTF/DTG printing in Adobe Photoshop and do not want per-seat licenses or subscriptions. They arrive from a search or a recommendation looking for a free way to make halftones with a knockout of the garment color. Print shops are a secondary audience and are not the priority of the page.

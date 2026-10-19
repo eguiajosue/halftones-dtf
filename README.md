@@ -30,8 +30,9 @@ Sube la versión en `manifest.json` y `package.json` y haz merge a `main`. Despu
 `manifest.json`, `index.html`, `styles.css`, `main.js` (generado) · `src/` (`main.js`, `state.js`, `presets.js`, `ps/`, `ui/`) · `assets/` (motivos e iconos) · `tools/` (generadores, comprobaciones, empaquetado) · `site/` (web en GitHub Pages) · `.github/workflows/` (CI, release y Pages).
 
 ## Créditos
-- Modelo 3D de la camiseta de la web: «[T-SHIRT 3D Model Free](https://sketchfab.com/3d-models/t-shirt-3d-model-free-408000a9975a4c34866b42dfaca4fa75)» de [Mohammad Rajabloo](https://sketchfab.com/MohammadRajabloo), licencia [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Modificado: reparado (el archivo original estaba truncado), simplificado a ~9.000 vértices, sin texturas y con las normales recalculadas (`site/assets/shirt.glb`).
+- Modelo 3D de la camiseta de la web: «[T-SHIRT 3D Model Free](https://sketchfab.com/3d-models/t-shirt-3d-model-free-408000a9975a4c34866b42dfaca4fa75)» de [Mohammad Rajabloo](https://sketchfab.com/MohammadRajabloo), licencia [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Modificado: reparado (el archivo original estaba truncado), simplificado a ~9.000 vértices, sin texturas y con las normales recalculadas (`site/assets/shirt.glb`).
 
+- [Three.js](https://threejs.org/) r160 (autoalojado en `site/assets/vendor/three@0.160.0`, sin modificar): licencia MIT, © 2010-2023 three.js authors. Aviso completo en `site/assets/vendor/three@0.160.0/LICENSE`.
 - Tipografías de la web (autoalojadas en `site/assets/fonts`, licencia SIL OFL 1.1): Bricolage Grotesque, Archivo e Instrument Serif. Detalle en `site/assets/fonts/LICENSES.md`.
 - Dirección visual de la web registrada en `PRODUCT.md` y `DESIGN.md`.
 
