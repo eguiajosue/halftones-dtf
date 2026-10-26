@@ -100,12 +100,15 @@ function lock(msg) {
 function unlock() {
   if (!uiLocked) return;
   uiLocked = false;
+  state.maskFresh = false;             // el documento pudo cambiar mientras estaba bloqueado
   setHidden($("lockBanner"), true);
   setClass($("step2"), "locked", false);
   setDisabled($("btnApply"), false);
+  if (held.size) { const kinds = [...held]; held.clear(); touch(...kinds); }
 }
 
 function resetToIdle() {
+  held.clear();
   resetState();
   unlock();
   showStep();
@@ -152,10 +155,14 @@ function targetSize() {
 // ---------- tiempo real: cola de cambios pendientes ----------
 // Cada control marca qué cambió; un único bucle aplica el último estado sin perder tipos de cambio.
 const dirty = new Set();
+const held = new Set();       // cambios que no pudieron aplicarse (documento equivocado): se reintentan al desbloquear
 let pumping = false;
+let applying = false;
+let eventsApi = null;
 
 function touch(...kinds) {
-  if (state.phase !== "ACTIVE" || uiLocked) return;
+  if (state.phase !== "ACTIVE") return;
+  if (uiLocked) { kinds.forEach(k => held.add(k)); return; }
   kinds.forEach(k => dirty.add(k));
   pump();
 }
@@ -169,11 +176,18 @@ async function pump() {
       const kinds = new Set(dirty);
       dirty.clear();
       try { await live.sync(S, kinds); }
-      catch (e) { dirty.clear(); await fail(e); }
+      catch (e) {
+        // Si el documento no era el correcto, el cambio se conserva y se reaplica al volver
+        if (e && (e.message === "WRONG_DOC" || e.message === "MISSING_LAYERS")) kinds.forEach(k => held.add(k));
+        dirty.forEach(k => held.add(k));
+        dirty.clear();
+        await fail(e);
+      }
     }
   } finally {
     pumping = false;
     setHidden($("busy"), true);
+    if (eventsApi) eventsApi.check();     // eventos ignorados mientras se trabajaba
   }
 }
 
@@ -318,6 +332,7 @@ async function onRun() {
 async function onApply() {
   message("");
   setDisabled($("btnApply"), true);
+  applying = true;
   try {
     while (pumping) await new Promise(r => setTimeout(r, 50));   // terminar ajustes pendientes
     await pipeline.applyPrep(S);
@@ -326,12 +341,15 @@ async function onApply() {
   } catch (e) {
     await fail(e);
   } finally {
+    applying = false;
     setDisabled($("btnApply"), false);
+    if (eventsApi) eventsApi.check();
   }
 }
 
 async function onCancel() {
   dirty.clear();
+  held.clear();
   try { await pipeline.cancelPrep(); } catch (e) { console.log(e); }
   resetToIdle();
 }
@@ -398,8 +416,8 @@ function bindUI() {
     touch("levels");
   });
   sShadow = sliders.createValueSlider($("sldShadow"), "shadow", { min: 0, max: 100 }, v => {
-    S.shadow = v.shadow; $("inShadow").value = v.shadow; touch("shadow");
-  });
+    S.shadow = v.shadow; $("inShadow").value = v.shadow;      // el realce es caro: se aplica al soltar
+  }, () => touch("shadow"));
   const levelField = (id, fn, opts) => bindNumber($(id), v => {
     if (Number.isFinite(v)) { fn(v); touch("levels"); }
     syncTones();
@@ -476,12 +494,13 @@ async function main() {
   });
   await step("sync", () => { showStep(); syncUI(); });
   await step("tamaño", () => updateCurrentPrintSize(true));
-  await step("eventos", () => events.init({
+  await step("eventos", () => { eventsApi = events.init({
+    isBusy: () => pumping || applying,
     onIdleChange: () => updateCurrentPrintSize(),
     onWorkClosed: () => { message("El documento de trabajo se cerró.", "warn"); resetToIdle(); },
     onLock: lock,
     onUnlock: unlock
-  }));
+  }); });
 }
 
 // Cualquier error no controlado se muestra en el panel (facilita el diagnóstico en Photoshop)
@@ -628,14 +647,17 @@ module.exports = {
 defs["src/ps/events.js"] = function (module, exports, require) {
 const { action, app } = require("photoshop");
 const { state } = require("../state");
+const { debounce } = require("../util");
 
-const EVENTS = ["select", "close", "open", "imageSize", "canvasSize", "historyStateChanged"];
+// historyStateChanged solo importa con el trabajo en curso (deshacer/borrar capas); en reposo solo el tamaño
+const IDLE_EVENTS = ["select", "close", "open", "imageSize", "canvasSize"];
+const EVENTS = [...IDLE_EVENTS, "historyStateChanged"];
 
-// handlers: { onIdleChange(), onWorkClosed(), onLock(msg), onUnlock() }
+// handlers: { isBusy(), onIdleChange(), onWorkClosed(), onLock(msg), onUnlock() }
 function init(handlers) {
-  action.addNotificationListener(EVENTS.map(e => ({ event: e })), (event) => {
+  function evaluate() {
     try {
-      if (state.phase === "RUNNING") return;
+      if (state.phase === "RUNNING" || handlers.isBusy()) return;
       if (state.phase === "ACTIVE") {
         const stillOpen = app.documents.some(d => d.id === state.workDocId);
         if (!stillOpen) return handlers.onWorkClosed();
@@ -647,9 +669,19 @@ function init(handlers) {
         handlers.onIdleChange();
       }
     } catch (e) {
-      console.log("events:", event, e);
+      console.log("events:", e);
     }
+  }
+
+  // Las acciones del propio plugin generan decenas de eventos: se ignoran mientras trabaja
+  // y el resto se agrupa. Al terminar, main.js llama a check() para no perder ninguno.
+  const check = debounce(evaluate, 150);
+  action.addNotificationListener(EVENTS.map(e => ({ event: e })), (event, descriptor) => {
+    if (handlers.isBusy() || state.phase === "RUNNING") return;
+    if (state.phase !== "ACTIVE" && event === "historyStateChanged") return;
+    check();
   });
+  return { check };
 }
 
 module.exports = { init };
@@ -710,10 +742,26 @@ const setSolid = (id, c) => bp({ _obj: "set", _target: [{ _ref: "contentLayer", 
 
 const definedPatterns = new Map();   // nombre -> ID (o null) definido en esta sesión
 
-// Define (una vez por sesión) el motivo de umbral a partir del PNG propio del plugin.
+// Nombres de motivos que ya existen en la biblioteca del usuario (persisten entre sesiones).
+async function libraryPatternNames() {
+  try {
+    const r = await bp({ _obj: "get", _target: [{ _property: "presetManager" }, { _ref: "application" }] });   // 🔍
+    const names = new Set();
+    for (const m of (r[0] && r[0].presetManager) || []) {
+      if (Array.isArray(m.name)) m.name.forEach(n => names.add(n));
+    }
+    return names;
+  } catch (e) { return new Set(); }
+}
+
+// Define el motivo de umbral a partir del PNG propio del plugin, solo si no existe ya en la biblioteca.
 async function ensurePattern(type) {
   const name = `HT ${type}`;
   if (definedPatterns.has(name)) return { name, id: definedPatterns.get(name) };
+  if ((await libraryPatternNames()).has(name)) {
+    definedPatterns.set(name, null);        // se usa por nombre; evita duplicados entre sesiones
+    return { name, id: null };
+  }
 
   const folder = await storage.localFileSystem.getPluginFolder();
   let entry;
@@ -737,6 +785,11 @@ async function ensurePattern(type) {
   }
   definedPatterns.set(name, id);
   return { name, id };
+}
+
+// Precarga los 4 motivos (una vez por sesión) para que cambiar de tipo en vivo no abra archivos.
+async function ensureAllPatterns() {
+  for (const type of ["ROUND", "LINE", "DIAMOND", "ELLIPSE"]) await ensurePattern(type);
 }
 
 function patternScale(lpi, resolution) {
@@ -791,7 +844,7 @@ async function setShadowBoost(amount) {
 
 module.exports = {
   makeSolid, makeHueSatDesat, makeThreshold, makeLevels, setLevels, setSolid,
-  makeHalftoneLayer, setHalftoneParams, setShadowBoost, applyShadowBoost
+  makeHalftoneLayer, setHalftoneParams, setShadowBoost, ensureAllPatterns
 };
 
 };
@@ -807,8 +860,15 @@ const { setPreviewMode } = require("./preview");
 function validateState() {
   const doc = app.activeDocument;
   if (!doc || doc.id !== state.workDocId) throw new Error("WRONG_DOC");
+  const present = new Set();
+  (function collect(container) {
+    for (const l of container.layers) {
+      present.add(l.id);
+      if (l.layers && l.layers.length) collect(l);
+    }
+  })(doc);
   for (const id of Object.values(state.layers)) {
-    if (!findLayer(doc, id)) throw new Error("MISSING_LAYERS");
+    if (!present.has(id)) throw new Error("MISSING_LAYERS");
   }
 }
 
@@ -838,7 +898,7 @@ function sync(s, kinds) {
     if (kinds.has("htType")) await replaceHalftone(s);
     else if (kinds.has("ht")) await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
 
-    if (MASK_KINDS.some(k => kinds.has(k))) await refreshMask(s);   // restaura también la vista
+    if (MASK_KINDS.some(k => kinds.has(k))) { state.maskFresh = false; await refreshMask(s); }   // restaura también la vista
     else if (kinds.has("preview")) await setPreviewMode(state.previewMode);
   }, { history: true });
 }
@@ -866,6 +926,7 @@ async function deleteMask() {
 }
 
 async function refreshMask(s = state.settings) {
+  state.maskFresh = false;
   const L = state.layers;
   const parts = [vis(L.ko, s.knockout), vis(L.desat, s.knockout),
                  vis(L.halftone, s.halftone), vis(L.threshold, !s.halftone)];
@@ -888,6 +949,7 @@ async function refreshMask(s = state.settings) {
               { _obj: "select", _target: [channel("RGB")], makeVisible: false },
               ...previewDescs(state.previewMode)]);
   }
+  state.maskFresh = true;
 }
 
 module.exports = { refreshMask };
@@ -916,6 +978,18 @@ function getWorkDoc() {
   return d;
 }
 
+// Fusiona las capas visibles en una sola (conserva la transparencia) y descarta las ocultas:
+// el objeto inteligente ART no arrastra un PSB con todas las capas originales.
+async function mergeVisibleLayers(work) {
+  try {
+    const visible = work.layers.filter(l => l.visible);
+    if (visible.length > 1) await bp({ _obj: "mergeVisible" });                                          // 🔍
+    const keep = work.layers.filter(l => l.visible);
+    if (keep.length !== 1) return;                                           // estado inesperado: se deja como estaba
+    for (const l of [...work.layers]) if (l.id !== keep[0].id) await l.delete();
+  } catch (e) { console.log("No se pudo fusionar las capas visibles:", e); }
+}
+
 // ---- Preparar ---------------------------------------------------------------
 // s = ajustes de la UI + widthPx / heightPx (tamaño objetivo a 300 ppi)
 async function runPrep(s) {
@@ -935,6 +1009,12 @@ async function runPrep(s) {
       app.activeDocument = work;
       state.workDocId = work.id;
       if (work.mode !== constants.DocumentMode.RGB) await work.changeMode(constants.ChangeMode.RGB);
+      // 8 bits/canal: con 16/32 bits la memoria y el tiempo de cada render se duplican o cuadruplican
+      try { await bp({ _obj: "convertMode", depth: 8, merge: false, rasterize: false }); }                // 🔍
+      catch (e) { console.log("Profundidad 8 bits no aplicada:", e); }
+      at("motivos");
+      await L_.ensureAllPatterns();           // una vez por sesión; cambiar de tipo en vivo ya no abre archivos
+      app.activeDocument = work;
 
       at("historial");
       const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Open-DTF: Preparar" });
@@ -949,6 +1029,7 @@ async function runPrep(s) {
 
         // 3) Aplanar todo en un objeto inteligente "ART"
         at("objeto inteligente ART");
+        await mergeVisibleLayers(work);
         await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
         const artId = await lastLayerId();
         await bp({ _obj: "set", _target: [targetLayer], to: { _obj: "layer", name: "ART" } });
@@ -1050,10 +1131,11 @@ async function applyPrep(s) {
     ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
 
     // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
-    await refreshMask(s);
+    if (!state.maskFresh) await refreshMask(s);          // la vista en vivo ya la dejó al día
     if (s.nativeFinal && s.halftone && s.knockout) {
       try { await nativeScreenMask(s); }
       catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
+      state.maskFresh = false;
     }
     checkCancel(ctx);
 
@@ -1126,9 +1208,7 @@ async function setPreviewMode(mode) {
   await bp(previewDescs(mode));
 }
 
-const restorePreviewVisibility = () => setPreviewMode(state.previewMode);
-
-module.exports = { setPreviewMode, restorePreviewVisibility, previewDescs, vis };
+module.exports = { setPreviewMode, previewDescs, vis };
 
 };
 defs["src/ps/screen.js"] = function (module, exports, require) {
@@ -1151,33 +1231,35 @@ async function nativeScreenMask({ lpi, angle, htType }) {
   await bp({ _obj: "duplicate", _target: [{ _ref: "document", _enum: "ordinal", _value: "targetEnum" }],
              name: "__ht_tmp", merged: true });                                                    // 🔍
   const tmp = app.activeDocument;
+  try {
+    // 2) Escala de grises -> Mapa de bits (trama de semitonos) -> Escala de grises
+    await bp([
+      { _obj: "convertMode", to: { _class: "grayscaleMode" } },
+      { _obj: "convertMode", to: { _obj: "bitmapMode",
+          resolution: { _unit: "densityUnit", _value: tmp.resolution },
+          method:     { _enum: "method", _value: "halftoneScreen" },
+          frequency:  { _unit: "densityUnit", _value: lpi },
+          angle:      { _unit: "angleUnit",   _value: angle },
+          shape:      { _enum: "shape", _value: SHAPES[htType] || "round" } } },                    // 🔍
+      { _obj: "convertMode", to: { _class: "grayscaleMode" }, ratio: 1 }                            // 🔍
+    ]);
 
-  // 2) Escala de grises -> Mapa de bits (trama de semitonos) -> Escala de grises
-  await bp([
-    { _obj: "convertMode", to: { _class: "grayscaleMode" } },
-    { _obj: "convertMode", to: { _obj: "bitmapMode",
-        resolution: { _unit: "densityUnit", _value: tmp.resolution },
-        method:     { _enum: "method", _value: "halftoneScreen" },
-        frequency:  { _unit: "densityUnit", _value: lpi },
-        angle:      { _unit: "angleUnit",   _value: angle },
-        shape:      { _enum: "shape", _value: SHAPES[htType] || "round" } } },                    // 🔍
-    { _obj: "convertMode", to: { _class: "grayscaleMode" }, ratio: 1 }                            // 🔍
-  ]);
-
-  // 3) Aplicar imagen desde el documento temporal a la máscara de ART (sin portapapeles)
-  app.activeDocument = work;
-  await selectLayer(L.art);
-  await bp([
-    { _obj: "select", _target: [channel("mask")], makeVisible: false },
-    { _obj: "applyImageEvent", with: { _obj: "calculation",
-        to: [channel("gray"), { _ref: "layer", _name: "Background" }, docById(tmp.id)],
-        calculation: { _enum: "calculationType", _value: "normal" } } }                           // 🔍
-  ]);
-  await tmp.closeWithoutSaving();
-  app.activeDocument = work;
-  await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
-  await bp({ _obj: "hide", null: [layerById(L.mapGroup)] });
-  await setVisible(L.halftone, true);
+    // 3) Aplicar imagen desde el documento temporal a la máscara de ART (sin portapapeles)
+    app.activeDocument = work;
+    await selectLayer(L.art);
+    await bp([
+      { _obj: "select", _target: [channel("mask")], makeVisible: false },
+      { _obj: "applyImageEvent", with: { _obj: "calculation",
+          to: [channel("gray"), { _ref: "layer", _name: "Background" }, docById(tmp.id)],
+          calculation: { _enum: "calculationType", _value: "normal" } } }                           // 🔍
+    ]);
+    await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
+    await bp({ _obj: "hide", null: [layerById(L.mapGroup)] });
+    await setVisible(L.halftone, true);
+  } finally {
+    try { await tmp.closeWithoutSaving(); } catch (e) { /* ya cerrado */ }
+    app.activeDocument = work;
+  }
 }
 
 module.exports = { nativeScreenMask };
@@ -1193,9 +1275,6 @@ const DEFAULTS = {
   cleanup: "standard", defringe: false, nativeFinal: false
 };
 
-const HT_TYPES = ["ROUND", "LINE", "DIAMOND", "ELLIPSE"];
-const CLEANUPS = ["none", "standard", "high"];
-
 const state = {
   phase: "IDLE",          // IDLE | RUNNING | ACTIVE
   srcDocId: null,         // documento original (no se toca)
@@ -1203,7 +1282,8 @@ const state = {
   layers: {},             // IDs: art, shirt, mapGroup, mapArt, mapBg, ko, desat, levels, threshold, halftone
   settings: JSON.parse(JSON.stringify(DEFAULTS)),
   previewMode: "shirt",
-  shadowOn: false
+  shadowOn: false,
+  maskFresh: false        // la máscara de ART refleja los ajustes actuales
 };
 
 function resetState() {
@@ -1213,9 +1293,10 @@ function resetState() {
   state.layers = {};
   state.previewMode = "shirt";
   state.shadowOn = false;
+  state.maskFresh = false;
 }
 
-module.exports = { TILE_PX, DEFAULTS, HT_TYPES, CLEANUPS, state, resetState };
+module.exports = { TILE_PX, DEFAULTS, state, resetState };
 
 };
 defs["src/ui/colorPicker.js"] = function (module, exports, require) {
@@ -1341,8 +1422,8 @@ const createOutputSlider = (root, onChange) => createSlider(root, {
   handles: [{ key: "outBlack", kind: "value" }, { key: "outWhite", kind: "value" }] });
 
 // Slider de un valor (sombras, LPI, ángulo)
-const createValueSlider = (root, key, { min, max, stepBy = 1 }, onChange) => createSlider(root, {
-  min, max, onChange, fill: [null, key],
+const createValueSlider = (root, key, { min, max, stepBy = 1 }, onChange, onCommit) => createSlider(root, {
+  min, max, onChange, onCommit, fill: [null, key],
   constrain: (k, v) => clamp(+step(v, stepBy).toFixed(2), min, max),
   handles: [{ key, kind: "value" }] });
 
@@ -1371,29 +1452,9 @@ function debounce(fn, ms) {
   return wrapped;
 }
 
-// Serializa tareas asíncronas: la última pendiente sustituye a las intermedias.
-function createQueue() {
-  let running = false;
-  let next = null;
-  return async function enqueue(task) {
-    next = task;
-    if (running) return;
-    running = true;
-    try {
-      while (next) {
-        const t = next;
-        next = null;
-        await t();
-      }
-    } finally {
-      running = false;
-    }
-  };
-}
-
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-module.exports = { debounce, createQueue, clamp };
+module.exports = { debounce, clamp };
 
 };
   try {

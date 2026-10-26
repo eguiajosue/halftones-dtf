@@ -18,3 +18,9 @@ El plugin se escribió sin poder ejecutarlo en Photoshop. Antes de distribuirlo,
 - [ ] `minimum` + `preserveShape`, `defringe`, `median`, `thresholdClassEvent`, `thresholdClassEvent` como capa de ajuste
 - [ ] Respuesta de `showColorPicker` · [ ] `duplicate merged` · [ ] `convertMode bitmapMode/halftoneScreen`
 - [ ] Polaridad (T2): si los puntos salen invertidos, invertir los tiles (`255 - v`) y regenerar con `npm run tiles`.
+
+## Añadidos de la Fase 1 (pendientes de validar)
+- [ ] `convertMode` con `depth: 8` (pipeline.js › runPrep); si falla se continúa sin convertir
+- [ ] `mergeVisible` y borrado de capas ocultas antes de crear `ART` (pipeline.js › mergeVisibleLayers); comparar el resultado con la versión anterior
+- [ ] `get presetManager` para detectar motivos `HT *` ya definidos (layers.js › libraryPatternNames); si no devuelve nombres se define el motivo como antes
+- [ ] Sombras: el realce se aplica al soltar el slider (no en cada movimiento)

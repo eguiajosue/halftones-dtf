@@ -79,12 +79,15 @@ function lock(msg) {
 function unlock() {
   if (!uiLocked) return;
   uiLocked = false;
+  state.maskFresh = false;             // el documento pudo cambiar mientras estaba bloqueado
   setHidden($("lockBanner"), true);
   setClass($("step2"), "locked", false);
   setDisabled($("btnApply"), false);
+  if (held.size) { const kinds = [...held]; held.clear(); touch(...kinds); }
 }
 
 function resetToIdle() {
+  held.clear();
   resetState();
   unlock();
   showStep();
@@ -131,10 +134,14 @@ function targetSize() {
 // ---------- tiempo real: cola de cambios pendientes ----------
 // Cada control marca qué cambió; un único bucle aplica el último estado sin perder tipos de cambio.
 const dirty = new Set();
+const held = new Set();       // cambios que no pudieron aplicarse (documento equivocado): se reintentan al desbloquear
 let pumping = false;
+let applying = false;
+let eventsApi = null;
 
 function touch(...kinds) {
-  if (state.phase !== "ACTIVE" || uiLocked) return;
+  if (state.phase !== "ACTIVE") return;
+  if (uiLocked) { kinds.forEach(k => held.add(k)); return; }
   kinds.forEach(k => dirty.add(k));
   pump();
 }
@@ -148,11 +155,18 @@ async function pump() {
       const kinds = new Set(dirty);
       dirty.clear();
       try { await live.sync(S, kinds); }
-      catch (e) { dirty.clear(); await fail(e); }
+      catch (e) {
+        // Si el documento no era el correcto, el cambio se conserva y se reaplica al volver
+        if (e && (e.message === "WRONG_DOC" || e.message === "MISSING_LAYERS")) kinds.forEach(k => held.add(k));
+        dirty.forEach(k => held.add(k));
+        dirty.clear();
+        await fail(e);
+      }
     }
   } finally {
     pumping = false;
     setHidden($("busy"), true);
+    if (eventsApi) eventsApi.check();     // eventos ignorados mientras se trabajaba
   }
 }
 
@@ -297,6 +311,7 @@ async function onRun() {
 async function onApply() {
   message("");
   setDisabled($("btnApply"), true);
+  applying = true;
   try {
     while (pumping) await new Promise(r => setTimeout(r, 50));   // terminar ajustes pendientes
     await pipeline.applyPrep(S);
@@ -305,12 +320,15 @@ async function onApply() {
   } catch (e) {
     await fail(e);
   } finally {
+    applying = false;
     setDisabled($("btnApply"), false);
+    if (eventsApi) eventsApi.check();
   }
 }
 
 async function onCancel() {
   dirty.clear();
+  held.clear();
   try { await pipeline.cancelPrep(); } catch (e) { console.log(e); }
   resetToIdle();
 }
@@ -377,8 +395,8 @@ function bindUI() {
     touch("levels");
   });
   sShadow = sliders.createValueSlider($("sldShadow"), "shadow", { min: 0, max: 100 }, v => {
-    S.shadow = v.shadow; $("inShadow").value = v.shadow; touch("shadow");
-  });
+    S.shadow = v.shadow; $("inShadow").value = v.shadow;      // el realce es caro: se aplica al soltar
+  }, () => touch("shadow"));
   const levelField = (id, fn, opts) => bindNumber($(id), v => {
     if (Number.isFinite(v)) { fn(v); touch("levels"); }
     syncTones();
@@ -455,12 +473,13 @@ async function main() {
   });
   await step("sync", () => { showStep(); syncUI(); });
   await step("tamaño", () => updateCurrentPrintSize(true));
-  await step("eventos", () => events.init({
+  await step("eventos", () => { eventsApi = events.init({
+    isBusy: () => pumping || applying,
     onIdleChange: () => updateCurrentPrintSize(),
     onWorkClosed: () => { message("El documento de trabajo se cerró.", "warn"); resetToIdle(); },
     onLock: lock,
     onUnlock: unlock
-  }));
+  }); });
 }
 
 // Cualquier error no controlado se muestra en el panel (facilita el diagnóstico en Photoshop)

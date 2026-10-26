@@ -17,6 +17,7 @@ async function deleteMask() {
 }
 
 async function refreshMask(s = state.settings) {
+  state.maskFresh = false;
   const L = state.layers;
   const parts = [vis(L.ko, s.knockout), vis(L.desat, s.knockout),
                  vis(L.halftone, s.halftone), vis(L.threshold, !s.halftone)];
@@ -39,6 +40,7 @@ async function refreshMask(s = state.settings) {
               { _obj: "select", _target: [channel("RGB")], makeVisible: false },
               ...previewDescs(state.previewMode)]);
   }
+  state.maskFresh = true;
 }
 
 module.exports = { refreshMask };

@@ -9,8 +9,15 @@ const { setPreviewMode } = require("./preview");
 function validateState() {
   const doc = app.activeDocument;
   if (!doc || doc.id !== state.workDocId) throw new Error("WRONG_DOC");
+  const present = new Set();
+  (function collect(container) {
+    for (const l of container.layers) {
+      present.add(l.id);
+      if (l.layers && l.layers.length) collect(l);
+    }
+  })(doc);
   for (const id of Object.values(state.layers)) {
-    if (!findLayer(doc, id)) throw new Error("MISSING_LAYERS");
+    if (!present.has(id)) throw new Error("MISSING_LAYERS");
   }
 }
 
@@ -40,7 +47,7 @@ function sync(s, kinds) {
     if (kinds.has("htType")) await replaceHalftone(s);
     else if (kinds.has("ht")) await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
 
-    if (MASK_KINDS.some(k => kinds.has(k))) await refreshMask(s);   // restaura también la vista
+    if (MASK_KINDS.some(k => kinds.has(k))) { state.maskFresh = false; await refreshMask(s); }   // restaura también la vista
     else if (kinds.has("preview")) await setPreviewMode(state.previewMode);
   }, { history: true });
 }

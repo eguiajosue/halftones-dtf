@@ -20,6 +20,18 @@ function getWorkDoc() {
   return d;
 }
 
+// Fusiona las capas visibles en una sola (conserva la transparencia) y descarta las ocultas:
+// el objeto inteligente ART no arrastra un PSB con todas las capas originales.
+async function mergeVisibleLayers(work) {
+  try {
+    const visible = work.layers.filter(l => l.visible);
+    if (visible.length > 1) await bp({ _obj: "mergeVisible" });                                          // 🔍
+    const keep = work.layers.filter(l => l.visible);
+    if (keep.length !== 1) return;                                           // estado inesperado: se deja como estaba
+    for (const l of [...work.layers]) if (l.id !== keep[0].id) await l.delete();
+  } catch (e) { console.log("No se pudo fusionar las capas visibles:", e); }
+}
+
 // ---- Preparar ---------------------------------------------------------------
 // s = ajustes de la UI + widthPx / heightPx (tamaño objetivo a 300 ppi)
 async function runPrep(s) {
@@ -39,6 +51,12 @@ async function runPrep(s) {
       app.activeDocument = work;
       state.workDocId = work.id;
       if (work.mode !== constants.DocumentMode.RGB) await work.changeMode(constants.ChangeMode.RGB);
+      // 8 bits/canal: con 16/32 bits la memoria y el tiempo de cada render se duplican o cuadruplican
+      try { await bp({ _obj: "convertMode", depth: 8, merge: false, rasterize: false }); }                // 🔍
+      catch (e) { console.log("Profundidad 8 bits no aplicada:", e); }
+      at("motivos");
+      await L_.ensureAllPatterns();           // una vez por sesión; cambiar de tipo en vivo ya no abre archivos
+      app.activeDocument = work;
 
       at("historial");
       const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Open-DTF: Preparar" });
@@ -53,6 +71,7 @@ async function runPrep(s) {
 
         // 3) Aplanar todo en un objeto inteligente "ART"
         at("objeto inteligente ART");
+        await mergeVisibleLayers(work);
         await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
         const artId = await lastLayerId();
         await bp({ _obj: "set", _target: [targetLayer], to: { _obj: "layer", name: "ART" } });
@@ -154,10 +173,11 @@ async function applyPrep(s) {
     ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
 
     // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
-    await refreshMask(s);
+    if (!state.maskFresh) await refreshMask(s);          // la vista en vivo ya la dejó al día
     if (s.nativeFinal && s.halftone && s.knockout) {
       try { await nativeScreenMask(s); }
       catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
+      state.maskFresh = false;
     }
     checkCancel(ctx);
 

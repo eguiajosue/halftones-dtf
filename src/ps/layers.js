@@ -52,10 +52,26 @@ const setSolid = (id, c) => bp({ _obj: "set", _target: [{ _ref: "contentLayer", 
 
 const definedPatterns = new Map();   // nombre -> ID (o null) definido en esta sesión
 
-// Define (una vez por sesión) el motivo de umbral a partir del PNG propio del plugin.
+// Nombres de motivos que ya existen en la biblioteca del usuario (persisten entre sesiones).
+async function libraryPatternNames() {
+  try {
+    const r = await bp({ _obj: "get", _target: [{ _property: "presetManager" }, { _ref: "application" }] });   // 🔍
+    const names = new Set();
+    for (const m of (r[0] && r[0].presetManager) || []) {
+      if (Array.isArray(m.name)) m.name.forEach(n => names.add(n));
+    }
+    return names;
+  } catch (e) { return new Set(); }
+}
+
+// Define el motivo de umbral a partir del PNG propio del plugin, solo si no existe ya en la biblioteca.
 async function ensurePattern(type) {
   const name = `HT ${type}`;
   if (definedPatterns.has(name)) return { name, id: definedPatterns.get(name) };
+  if ((await libraryPatternNames()).has(name)) {
+    definedPatterns.set(name, null);        // se usa por nombre; evita duplicados entre sesiones
+    return { name, id: null };
+  }
 
   const folder = await storage.localFileSystem.getPluginFolder();
   let entry;
@@ -79,6 +95,11 @@ async function ensurePattern(type) {
   }
   definedPatterns.set(name, id);
   return { name, id };
+}
+
+// Precarga los 4 motivos (una vez por sesión) para que cambiar de tipo en vivo no abra archivos.
+async function ensureAllPatterns() {
+  for (const type of ["ROUND", "LINE", "DIAMOND", "ELLIPSE"]) await ensurePattern(type);
 }
 
 function patternScale(lpi, resolution) {
@@ -133,5 +154,5 @@ async function setShadowBoost(amount) {
 
 module.exports = {
   makeSolid, makeHueSatDesat, makeThreshold, makeLevels, setLevels, setSolid,
-  makeHalftoneLayer, setHalftoneParams, setShadowBoost, applyShadowBoost
+  makeHalftoneLayer, setHalftoneParams, setShadowBoost, ensureAllPatterns
 };

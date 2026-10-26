@@ -7,9 +7,6 @@ const DEFAULTS = {
   cleanup: "standard", defringe: false, nativeFinal: false
 };
 
-const HT_TYPES = ["ROUND", "LINE", "DIAMOND", "ELLIPSE"];
-const CLEANUPS = ["none", "standard", "high"];
-
 const state = {
   phase: "IDLE",          // IDLE | RUNNING | ACTIVE
   srcDocId: null,         // documento original (no se toca)
@@ -17,7 +14,8 @@ const state = {
   layers: {},             // IDs: art, shirt, mapGroup, mapArt, mapBg, ko, desat, levels, threshold, halftone
   settings: JSON.parse(JSON.stringify(DEFAULTS)),
   previewMode: "shirt",
-  shadowOn: false
+  shadowOn: false,
+  maskFresh: false        // la máscara de ART refleja los ajustes actuales
 };
 
 function resetState() {
@@ -27,6 +25,7 @@ function resetState() {
   state.layers = {};
   state.previewMode = "shirt";
   state.shadowOn = false;
+  state.maskFresh = false;
 }
 
-module.exports = { TILE_PX, DEFAULTS, HT_TYPES, CLEANUPS, state, resetState };
+module.exports = { TILE_PX, DEFAULTS, state, resetState };
