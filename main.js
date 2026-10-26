@@ -109,6 +109,7 @@ function unlock() {
 
 function resetToIdle() {
   held.clear();
+  flushLater.cancel();
   resetState();
   unlock();
   showStep();
@@ -160,10 +161,18 @@ let pumping = false;
 let applying = false;
 let eventsApi = null;
 
+// La máscara completa es lo más caro: durante un gesto solo se actualiza la vista en vivo y la máscara
+// se recalcula tras 300 ms sin cambios (o de inmediato con "flushMask" en controles discretos).
+const MASK_DELAY = 300;
+const flushLater = debounce(() => touch("flushMask"), MASK_DELAY);
+const MASK_AFFECTING = new Set(["ko", "levels", "shadow", "ht", "htType", "mask"]);
+
 function touch(...kinds) {
-  if (state.phase !== "ACTIVE") return;
+  if (state.phase !== "ACTIVE" || applying) return;
   if (uiLocked) { kinds.forEach(k => held.add(k)); return; }
   kinds.forEach(k => dirty.add(k));
+  if (kinds.some(k => MASK_AFFECTING.has(k)) && !kinds.includes("flushMask")) flushLater();
+  else if (kinds.includes("flushMask")) flushLater.cancel();
   pump();
 }
 
@@ -261,7 +270,7 @@ async function onSwatch(key) {
   S[key] = c;
   if (S.linked) { S.knockoutColor = { ...c }; S.shirt = { ...c }; }
   syncColors();
-  touch(key === "shirt" && !S.linked ? "shirt" : "ko", "shirt");
+  touch(key === "shirt" && !S.linked ? "shirt" : "ko", "shirt", "flushMask");
 }
 
 // ---------- presets ----------
@@ -333,6 +342,7 @@ async function onApply() {
   message("");
   setDisabled($("btnApply"), true);
   applying = true;
+  flushLater.cancel();
   try {
     while (pumping) await new Promise(r => setTimeout(r, 50));   // terminar ajustes pendientes
     await pipeline.applyPrep(S);
@@ -350,6 +360,7 @@ async function onApply() {
 async function onCancel() {
   dirty.clear();
   held.clear();
+  flushLater.cancel();
   try { await pipeline.cancelPrep(); } catch (e) { console.log(e); }
   resetToIdle();
 }
@@ -371,13 +382,13 @@ function bindUI() {
   $("chkHalftone").addEventListener("change", () => {
     S.halftone = $("chkHalftone").checked;
     setHidden($("htBody"), !S.halftone);
-    touch("mask");
+    touch("mask", "flushMask");
   });
   $$("#segHtType .seg-btn").forEach(b => b.addEventListener("click", () => {
     if (S.htType === b.dataset.value) return;
     S.htType = b.dataset.value;
     setSeg("segHtType", "value", S.htType);
-    touch("htType");
+    touch("htType", "flushMask");
   }));
   sLpi = sliders.createValueSlider($("sldLpi"), "lpi", { min: LPI.min, max: LPI.max, stepBy: 1 }, v => {
     S.lpi = v.lpi; $("inLpi").value = v.lpi; updateLpiLabel(); touch("ht");
@@ -395,7 +406,7 @@ function bindUI() {
   }, { step: 0.5, decimals: 1, liveTyping: true });
 
   // Knockout y colores
-  $("chkKnockout").addEventListener("change", () => { S.knockout = $("chkKnockout").checked; touch("mask"); });
+  $("chkKnockout").addEventListener("change", () => { S.knockout = $("chkKnockout").checked; touch("mask", "flushMask"); });
   $("chkLinked").addEventListener("change", () => {
     S.linked = $("chkLinked").checked;
     if (S.linked) S.shirt = { ...S.knockoutColor };
@@ -417,7 +428,7 @@ function bindUI() {
   });
   sShadow = sliders.createValueSlider($("sldShadow"), "shadow", { min: 0, max: 100 }, v => {
     S.shadow = v.shadow; $("inShadow").value = v.shadow;      // el realce es caro: se aplica al soltar
-  }, () => touch("shadow"));
+  }, () => touch("shadow", "flushMask"));
   const levelField = (id, fn, opts) => bindNumber($(id), v => {
     if (Number.isFinite(v)) { fn(v); touch("levels"); }
     syncTones();
@@ -436,7 +447,7 @@ function bindUI() {
     Object.assign(S, { black: DEFAULTS.black, gamma: DEFAULTS.gamma, white: DEFAULTS.white,
                        outBlack: DEFAULTS.outBlack, outWhite: DEFAULTS.outWhite, shadow: DEFAULTS.shadow });
     syncTones();
-    touch("levels", "shadow");
+    touch("levels", "shadow", "flushMask");
   });
 
   // Vista y acabado
@@ -884,7 +895,7 @@ async function replaceHalftone(s) {
 }
 
 // Aplica en una sola operación modal (una entrada de historial) solo lo que cambió.
-// kinds: shirt, ko, levels, shadow, ht, htType, mask, preview
+// kinds: shirt, ko, levels, shadow, ht, htType, mask, preview, flushMask
 const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask"];
 
 function sync(s, kinds) {
@@ -898,12 +909,16 @@ function sync(s, kinds) {
     if (kinds.has("htType")) await replaceHalftone(s);
     else if (kinds.has("ht")) await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
 
-    if (MASK_KINDS.some(k => kinds.has(k))) { state.maskFresh = false; await refreshMask(s); }   // restaura también la vista
-    else if (kinds.has("preview")) await setPreviewMode(state.previewMode);
+    // La máscara (cara: compone todo el documento al 100 %) solo se recalcula con "flushMask";
+    // mientras se arrastra, la vista usa el mapa en vivo (ver preview.js).
+    const maskChanged = MASK_KINDS.some(k => kinds.has(k));
+    if (maskChanged) state.maskFresh = false;
+    if (kinds.has("flushMask") && !state.maskFresh) await refreshMask(s);          // restaura también la vista
+    else if (maskChanged || kinds.has("preview")) await setPreviewMode(state.previewMode, s);
   }, { history: true });
 }
 
-module.exports = { validateState, sync, ALL_KINDS: ["shirt", "ko", "levels", "shadow", "htType", "mask"] };
+module.exports = { validateState, sync, ALL_KINDS: ["shirt", "ko", "levels", "shadow", "htType", "mask", "flushMask"] };
 
 };
 defs["src/ps/mask.js"] = function (module, exports, require) {
@@ -912,7 +927,7 @@ defs["src/ps/mask.js"] = function (module, exports, require) {
 // máscara de capa desde ella (conserva los grises). Agrupado en pocas llamadas para ir rápido en vivo.
 const { state } = require("../state");
 const { bp, layerById, channel } = require("./bp");
-const { previewDescs, vis } = require("./preview");
+const { previewDescs, vis, blend } = require("./preview");
 
 const SELECTION = { _ref: "channel", _property: "selection" };
 const selectArt = () => ({ _obj: "select", _target: [layerById(state.layers.art)], makeVisible: false });
@@ -933,21 +948,21 @@ async function refreshMask(s = state.settings) {
 
   if (s.knockout) {
     // Solo MAP GROUP visible -> luminosidad compuesta como selección
-    await bp([...parts, vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true),
+    await bp([...parts, blend(L.mapGroup, "passThrough"), vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true),
               { _obj: "set", _target: [SELECTION], to: channel("RGB") },
               vis(L.mapGroup, false)]);
     await deleteMask();
     await bp([selectArt(), makeMask("revealSelection"),
               { _obj: "set", _target: [SELECTION], to: { _enum: "ordinal", _value: "none" } },
               { _obj: "select", _target: [channel("RGB")], makeVisible: false },
-              ...previewDescs(state.previewMode)]);
+              ...previewDescs(state.previewMode, false, s)]);
   } else {
     // Sin knockout: todo opaco
     await bp(parts);
     await deleteMask();
     await bp([selectArt(), makeMask("revealAll"),
               { _obj: "select", _target: [channel("RGB")], makeVisible: false },
-              ...previewDescs(state.previewMode)]);
+              ...previewDescs(state.previewMode, false, s)]);
   }
   state.maskFresh = true;
 }
@@ -1191,24 +1206,42 @@ const { bp, layerById } = require("./bp");
 
 const vis = (id, on) => ({ _obj: on ? "show" : "hide", null: [layerById(id)] });
 const maskOn = (id, on) => ({ _obj: "set", _target: [layerById(id)], to: { _obj: "layer", userMaskEnabled: on } });
+const blend = (id, mode) => ({ _obj: "set", _target: [layerById(id)],
+                               to: { _obj: "layer", mode: { _enum: "blendMode", _value: mode } } });   // 🔍 grupo en multiply / passThrough
 
-// Descriptores de cada vista (Original / Prenda / Alfa / Máscara), para enviarlos en un solo batchPlay
-function previewDescs(mode) {
+// Visibilidad de las capas que definen el mapa (según knockout y semitono)
+function partsDescs(s) {
+  const L = state.layers;
+  return [vis(L.ko, s.knockout), vis(L.desat, s.knockout), vis(L.halftone, s.halftone), vis(L.threshold, !s.halftone)];
+}
+
+// Descriptores de cada vista (Original / Prenda / Alfa / Máscara), para enviarlos en un solo batchPlay.
+// stale = la máscara de ART no está al día (ajuste en curso): se muestra el mapa en vivo, que Photoshop
+// compone solo a la resolución de pantalla, en lugar de la máscara. Prenda = ART × mapa (exacto con prenda negra).
+function previewDescs(mode, stale = false, s = state.settings) {
   const L = state.layers;
   switch (mode) {
     case "original": return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, false), vis(L.shirt, false)];
-    case "alpha":    return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, false)];
-    case "mask":     return [vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true)];
-    default:         return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, true)];
+    case "alpha":
+      if (!stale) return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, false)];
+      if (!s.knockout) return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, false), vis(L.shirt, false)];
+      return [...partsDescs(s), blend(L.mapGroup, "passThrough"), vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true)];
+    case "mask":
+      return [...(stale ? partsDescs(s) : []), blend(L.mapGroup, "passThrough"),
+              vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true)];
+    default:
+      if (!stale) return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, true)];
+      return [...partsDescs(s), blend(L.mapGroup, "multiply"), vis(L.art, true), maskOn(L.art, false),
+              vis(L.shirt, true), vis(L.mapGroup, s.knockout)];
   }
 }
 
-async function setPreviewMode(mode) {
+async function setPreviewMode(mode, s = state.settings) {
   state.previewMode = mode;
-  await bp(previewDescs(mode));
+  await bp(previewDescs(mode, !state.maskFresh, s));
 }
 
-module.exports = { setPreviewMode, previewDescs, vis };
+module.exports = { setPreviewMode, previewDescs, vis, blend };
 
 };
 defs["src/ps/screen.js"] = function (module, exports, require) {

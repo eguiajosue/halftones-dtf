@@ -88,6 +88,7 @@ function unlock() {
 
 function resetToIdle() {
   held.clear();
+  flushLater.cancel();
   resetState();
   unlock();
   showStep();
@@ -139,10 +140,18 @@ let pumping = false;
 let applying = false;
 let eventsApi = null;
 
+// La máscara completa es lo más caro: durante un gesto solo se actualiza la vista en vivo y la máscara
+// se recalcula tras 300 ms sin cambios (o de inmediato con "flushMask" en controles discretos).
+const MASK_DELAY = 300;
+const flushLater = debounce(() => touch("flushMask"), MASK_DELAY);
+const MASK_AFFECTING = new Set(["ko", "levels", "shadow", "ht", "htType", "mask"]);
+
 function touch(...kinds) {
-  if (state.phase !== "ACTIVE") return;
+  if (state.phase !== "ACTIVE" || applying) return;
   if (uiLocked) { kinds.forEach(k => held.add(k)); return; }
   kinds.forEach(k => dirty.add(k));
+  if (kinds.some(k => MASK_AFFECTING.has(k)) && !kinds.includes("flushMask")) flushLater();
+  else if (kinds.includes("flushMask")) flushLater.cancel();
   pump();
 }
 
@@ -240,7 +249,7 @@ async function onSwatch(key) {
   S[key] = c;
   if (S.linked) { S.knockoutColor = { ...c }; S.shirt = { ...c }; }
   syncColors();
-  touch(key === "shirt" && !S.linked ? "shirt" : "ko", "shirt");
+  touch(key === "shirt" && !S.linked ? "shirt" : "ko", "shirt", "flushMask");
 }
 
 // ---------- presets ----------
@@ -312,6 +321,7 @@ async function onApply() {
   message("");
   setDisabled($("btnApply"), true);
   applying = true;
+  flushLater.cancel();
   try {
     while (pumping) await new Promise(r => setTimeout(r, 50));   // terminar ajustes pendientes
     await pipeline.applyPrep(S);
@@ -329,6 +339,7 @@ async function onApply() {
 async function onCancel() {
   dirty.clear();
   held.clear();
+  flushLater.cancel();
   try { await pipeline.cancelPrep(); } catch (e) { console.log(e); }
   resetToIdle();
 }
@@ -350,13 +361,13 @@ function bindUI() {
   $("chkHalftone").addEventListener("change", () => {
     S.halftone = $("chkHalftone").checked;
     setHidden($("htBody"), !S.halftone);
-    touch("mask");
+    touch("mask", "flushMask");
   });
   $$("#segHtType .seg-btn").forEach(b => b.addEventListener("click", () => {
     if (S.htType === b.dataset.value) return;
     S.htType = b.dataset.value;
     setSeg("segHtType", "value", S.htType);
-    touch("htType");
+    touch("htType", "flushMask");
   }));
   sLpi = sliders.createValueSlider($("sldLpi"), "lpi", { min: LPI.min, max: LPI.max, stepBy: 1 }, v => {
     S.lpi = v.lpi; $("inLpi").value = v.lpi; updateLpiLabel(); touch("ht");
@@ -374,7 +385,7 @@ function bindUI() {
   }, { step: 0.5, decimals: 1, liveTyping: true });
 
   // Knockout y colores
-  $("chkKnockout").addEventListener("change", () => { S.knockout = $("chkKnockout").checked; touch("mask"); });
+  $("chkKnockout").addEventListener("change", () => { S.knockout = $("chkKnockout").checked; touch("mask", "flushMask"); });
   $("chkLinked").addEventListener("change", () => {
     S.linked = $("chkLinked").checked;
     if (S.linked) S.shirt = { ...S.knockoutColor };
@@ -396,7 +407,7 @@ function bindUI() {
   });
   sShadow = sliders.createValueSlider($("sldShadow"), "shadow", { min: 0, max: 100 }, v => {
     S.shadow = v.shadow; $("inShadow").value = v.shadow;      // el realce es caro: se aplica al soltar
-  }, () => touch("shadow"));
+  }, () => touch("shadow", "flushMask"));
   const levelField = (id, fn, opts) => bindNumber($(id), v => {
     if (Number.isFinite(v)) { fn(v); touch("levels"); }
     syncTones();
@@ -415,7 +426,7 @@ function bindUI() {
     Object.assign(S, { black: DEFAULTS.black, gamma: DEFAULTS.gamma, white: DEFAULTS.white,
                        outBlack: DEFAULTS.outBlack, outWhite: DEFAULTS.outWhite, shadow: DEFAULTS.shadow });
     syncTones();
-    touch("levels", "shadow");
+    touch("levels", "shadow", "flushMask");
   });
 
   // Vista y acabado

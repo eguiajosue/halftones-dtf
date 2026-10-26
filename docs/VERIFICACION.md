@@ -24,3 +24,9 @@ El plugin se escribió sin poder ejecutarlo en Photoshop. Antes de distribuirlo,
 - [ ] `mergeVisible` y borrado de capas ocultas antes de crear `ART` (pipeline.js › mergeVisibleLayers); comparar el resultado con la versión anterior
 - [ ] `get presetManager` para detectar motivos `HT *` ya definidos (layers.js › libraryPatternNames); si no devuelve nombres se define el motivo como antes
 - [ ] Sombras: el realce se aplica al soltar el slider (no en cada movimiento)
+
+## Fase 2: máscara diferida (pendiente de validar)
+- [ ] Cambiar el modo de fusión de `MAP GROUP` a `multiply` / `passThrough` (`set layer mode`, preview.js › blend)
+- [ ] Vista Prenda durante el arrastre = `ART × mapa` (sin máscara): comparar con la vista tras recalcular la máscara; exacta con prenda negra, aproximada con otros colores
+- [ ] Tras ~300 ms sin cambios (o al soltar/pulsar un control discreto) la máscara se recalcula y la vista pasa a la máscara real
+- [ ] Medir: estados de historial por gesto (objetivo ≤ 2) y latencia por fotograma en los documentos M y L

@@ -33,7 +33,7 @@ async function replaceHalftone(s) {
 }
 
 // Aplica en una sola operación modal (una entrada de historial) solo lo que cambió.
-// kinds: shirt, ko, levels, shadow, ht, htType, mask, preview
+// kinds: shirt, ko, levels, shadow, ht, htType, mask, preview, flushMask
 const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask"];
 
 function sync(s, kinds) {
@@ -47,9 +47,13 @@ function sync(s, kinds) {
     if (kinds.has("htType")) await replaceHalftone(s);
     else if (kinds.has("ht")) await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
 
-    if (MASK_KINDS.some(k => kinds.has(k))) { state.maskFresh = false; await refreshMask(s); }   // restaura también la vista
-    else if (kinds.has("preview")) await setPreviewMode(state.previewMode);
+    // La máscara (cara: compone todo el documento al 100 %) solo se recalcula con "flushMask";
+    // mientras se arrastra, la vista usa el mapa en vivo (ver preview.js).
+    const maskChanged = MASK_KINDS.some(k => kinds.has(k));
+    if (maskChanged) state.maskFresh = false;
+    if (kinds.has("flushMask") && !state.maskFresh) await refreshMask(s);          // restaura también la vista
+    else if (maskChanged || kinds.has("preview")) await setPreviewMode(state.previewMode, s);
   }, { history: true });
 }
 
-module.exports = { validateState, sync, ALL_KINDS: ["shirt", "ko", "levels", "shadow", "htType", "mask"] };
+module.exports = { validateState, sync, ALL_KINDS: ["shirt", "ko", "levels", "shadow", "htType", "mask", "flushMask"] };
