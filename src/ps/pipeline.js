@@ -1,5 +1,6 @@
 const { app, constants } = require("photoshop");
 const { state, resetState } = require("../state");
+const perf = require("../perf");
 const {
   bp, bpThenId, modal, px, validId, layerById, targetLayer, channel, selectLayer, findLayer, baseName
 } = require("./bp");
@@ -34,7 +35,9 @@ async function mergeVisibleLayers(work) {
 
 // ---- Preparar ---------------------------------------------------------------
 // s = ajustes de la UI + widthPx / heightPx (tamaño objetivo a 300 ppi)
-async function runPrep(s) {
+function runPrep(s) { return perf.track("Preparar", () => runPrepTracked(s)); }
+
+async function runPrepTracked(s) {
   const src = app.activeDocument;
   if (!src) throw new Error("No hay documento abierto.");
   state.phase = "RUNNING";
@@ -164,7 +167,9 @@ async function cancelPrep() {
 }
 
 // ---- Aplicar -----------------------------------------------------------------
-async function applyPrep(s) {
+function applyPrep(s) { return perf.track("Aplicar", () => applyPrepTracked(s)); }
+
+async function applyPrepTracked(s) {
   await modal("Open-DTF: Aplicar", async (ctx) => {
     const work = getWorkDoc();
     app.activeDocument = work;

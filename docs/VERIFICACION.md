@@ -36,3 +36,8 @@ El plugin se escribió sin poder ejecutarlo en Photoshop. Antes de distribuirlo,
 - [ ] *Aplicar*: borrar `MAP GROUP` y `SHIRT` antes de rasterizar (el resultado final debe ser idéntico)
 - [ ] Botón «Celda entera» y etiqueta de celda (LPI efectivo a 300 ppi); comprobar que desaparece el moiré en tramas finas
 - [ ] Aviso de memoria por encima de 150 MP (requiere pulsar Preparar dos veces)
+
+## Panel de rendimiento (pendiente de validar)
+- [ ] 5 pulsaciones sobre «Open-DTF» muestran/ocultan el panel; el estado se conserva al reiniciar Photoshop
+- [ ] `app.version`, `require("uxp").versions` y `doc.bitsPerChannel` devuelven valores (si no, el informe muestra «?»)
+- [ ] El informe se actualiza tras cada operación y el texto se puede seleccionar y copiar desde el `textarea`

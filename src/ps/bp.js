@@ -1,4 +1,5 @@
 const { action, core, app } = require("photoshop");
+const perf = require("../perf");
 
 const px  = v => ({ _unit: "pixelsUnit",  _value: v });
 const pct = v => ({ _unit: "percentUnit", _value: v });
@@ -16,10 +17,13 @@ const channel = v => ({ _ref: "channel", _enum: "channel", _value: v });
 async function bp(descs) {
   const list = Array.isArray(descs) ? descs : [descs];
   let res;
+  const t0 = Date.now();
   try {
     res = await action.batchPlay(list, { modalBehavior: "execute" });
   } catch (e) {
     throw new Error(`${list.map(d => d._obj).join(",")}: ${e.message}`);
+  } finally {
+    perf.noteBatch(list.map(d => d._obj).join(","), Date.now() - t0);
   }
   res.forEach((r, i) => {
     if (r && r._obj === "error") throw new Error(`${list[i]._obj}: ${r.message}`);

@@ -1,5 +1,6 @@
 const { app } = require("photoshop");
 const { state } = require("../state");
+const perf = require("../perf");
 const { modal, findLayer, selectLayer } = require("./bp");
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
@@ -37,6 +38,11 @@ async function replaceHalftone(s) {
 const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask"];
 
 function sync(s, kinds) {
+  const label = "Vivo: " + [...kinds].filter(k => k !== "flushMask").sort().join("+") + (kinds.has("flushMask") ? " (máscara)" : "");
+  return perf.track(label, () => syncModal(s, kinds));
+}
+
+function syncModal(s, kinds) {
   return modal("Open-DTF: Ajuste en vivo", async () => {
     validateState();
     const L = state.layers;

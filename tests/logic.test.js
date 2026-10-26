@@ -109,3 +109,27 @@ test("bpThenId añade la lectura del ID de capa y lo devuelve", async () => {
   assert.equal(sent.length, 2);
   assert.equal(sent[1]._obj, "get");
 });
+
+test("perf: percentiles, track anidado y informe", async () => {
+  const perf = src("perf");
+  assert.equal(perf.percentile([10, 20, 30, 40, 100], 50), 30);
+  assert.equal(perf.percentile([10, 20, 30, 40, 100], 95), 100);
+  assert.equal(perf.percentile([], 50), 0);
+  perf.clear();
+  const r = await perf.track("Prueba", async () => {
+    perf.noteBatch("make", 5);
+    perf.noteBatch("set", 9);
+    return perf.track("interna", async () => { perf.noteBatch("get", 1); return 7; });   // se atribuye a la exterior
+  });
+  assert.equal(r, 7);
+  const s = perf.stats();
+  assert.equal(s.length, 1);
+  assert.equal(s[0].label, "Prueba");
+  assert.equal(s[0].calls, 3);
+  const txt = perf.report(["ENV"]);
+  assert.match(txt, /^ENV/);
+  assert.match(txt, /Prueba: n=1/);
+  assert.match(txt, /set/);              // el batchPlay más lento aparece en la última operación
+  perf.clear();
+  assert.match(perf.report(), /Sin mediciones/);
+});

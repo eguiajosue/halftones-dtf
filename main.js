@@ -29,6 +29,7 @@ const presets = require("./presets");
 const pipeline = require("./ps/pipeline");
 const live = require("./ps/live");
 const events = require("./ps/events");
+const perf = require("./perf");
 
 const $ = id => document.getElementById(id);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -377,8 +378,47 @@ async function onCancel() {
   resetToIdle();
 }
 
+// ---------- panel de depuración de rendimiento ----------
+function perfEnv() {
+  const env = [];
+  const safe = (fn, d = "?") => { try { const v = fn(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+  env.push(`Open-DTF ${safe(() => require("uxp").versions.plugin)} · Photoshop ${safe(() => app.version)} · UXP ${safe(() => require("uxp").versions.uxp)}`);
+  const doc = currentDoc();
+  if (doc) {
+    const w = dimPx(doc.width), h = dimPx(doc.height);
+    env.push(`Documento: ${w}×${h} px (${(w * h / 1e6).toFixed(1)} MP) · ${safe(() => doc.mode)} · ${safe(() => doc.bitsPerChannel)} · ${safe(() => doc.layers.length)} capas`);
+  }
+  env.push(`Ajustes: ${S.htType} ${S.lpi} LPI ${S.angle}° · halftone ${S.halftone} · knockout ${S.knockout} · sombras ${S.shadow} · limpieza ${S.cleanup} · trama nativa ${S.nativeFinal}`);
+  return env;
+}
+
+function renderPerf() {
+  if (!$("perfBlock") || $("perfBlock").classList.contains("hidden")) return;
+  $("perfOut").value = perf.report(perfEnv());
+}
+
+function setPerfVisible(on) {
+  setHidden($("perfBlock"), !on);
+  prefs.set("debugPerf", on ? "1" : "0");
+  renderPerf();
+}
+
 // ---------- cableado ----------
 function bindUI() {
+  // Panel de depuración: 5 pulsaciones seguidas sobre el nombre lo muestran u ocultan
+  let taps = 0, tapTimer = null;
+  document.querySelector(".wordmark").addEventListener("click", () => {
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => { taps = 0; }, 1500);
+    if (++taps >= 5) { taps = 0; setPerfVisible($("perfBlock").classList.contains("hidden")); }
+  });
+  $("btnPerfRefresh").addEventListener("click", renderPerf);
+  $("btnPerfClear").addEventListener("click", () => { perf.clear(); renderPerf(); });
+  $("btnPerfHide").addEventListener("click", () => setPerfVisible(false));
+  perf.onUpdate(renderPerf);
+  setHidden($("perfBlock"), prefs.get("debugPerf", "0") !== "1");
+  renderPerf();
+
   // Tamaño
   $("btnUnit").addEventListener("change", () => {
     unit = ["in", "cm", "mm"][pickerIndex($("btnUnit"))];
@@ -538,6 +578,85 @@ window.addEventListener("unhandledrejection", e => status(`Error: ${e.reason && 
 main().catch(e => { console.log("Halftones DTF init:", e); status(e.message); });
 
 };
+defs["src/perf.js"] = function (module, exports, require) {
+// Medición de rendimiento: tiempo total de cada operación del plugin, nº de batchPlay y los más lentos.
+// Siempre registra (coste mínimo); el panel de depuración solo lo muestra.
+const MAX_SAMPLES = 50;
+
+const samples = {};          // etiqueta -> [{ ms, calls, bpMs }]
+let current = null;
+let last = null;
+let listener = null;
+
+const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
+function percentile(values, p) {
+  if (!values.length) return 0;
+  const a = [...values].sort((x, y) => x - y);
+  return a[Math.min(a.length - 1, Math.max(0, Math.ceil((p / 100) * a.length) - 1))];
+}
+
+// Llamado desde bp(): una entrada por batchPlay
+function noteBatch(names, ms) {
+  if (!current) return;
+  current.calls++;
+  current.bpMs += ms;
+  current.slow.push({ name: names, ms });
+  if (current.slow.length > 20) { current.slow.sort((a, b) => b.ms - a.ms); current.slow.length = 5; }
+}
+
+// Si ya hay una operación en curso, la anidada se atribuye a la exterior.
+async function track(label, fn) {
+  if (current) return fn();
+  const op = { label, t0: now(), calls: 0, bpMs: 0, slow: [] };
+  current = op;
+  try {
+    return await fn();
+  } finally {
+    current = null;
+    op.ms = now() - op.t0;
+    op.slow.sort((a, b) => b.ms - a.ms);
+    op.slow.length = Math.min(op.slow.length, 3);
+    const list = samples[label] || (samples[label] = []);
+    list.push({ ms: op.ms, calls: op.calls, bpMs: op.bpMs });
+    if (list.length > MAX_SAMPLES) list.shift();
+    last = op;
+    if (listener) { try { listener(); } catch (e) { /* UI */ } }
+  }
+}
+
+function stats() {
+  return Object.keys(samples).sort().map(label => {
+    const l = samples[label];
+    const ms = l.map(x => x.ms);
+    return { label, n: l.length, p50: percentile(ms, 50), p95: percentile(ms, 95), max: Math.max(...ms),
+             calls: Math.round(l.reduce((a, x) => a + x.calls, 0) / l.length) };
+  });
+}
+
+const fmt = ms => (ms >= 1000 ? (ms / 1000).toFixed(2) + " s" : Math.round(ms) + " ms");
+
+// Texto listo para pegar en una incidencia. env: líneas de contexto (documento, versión…)
+function report(env = []) {
+  const out = [...env, ""];
+  const s = stats();
+  if (!s.length) out.push("Sin mediciones todavía.");
+  for (const r of s) {
+    out.push(`${r.label}: n=${r.n} · p50 ${fmt(r.p50)} · p95 ${fmt(r.p95)} · máx ${fmt(r.max)} · ~${r.calls} batchPlay`);
+  }
+  if (last) {
+    out.push("", `Última: ${last.label} ${fmt(last.ms)} (${last.calls} batchPlay, ${fmt(last.bpMs)} en Photoshop)`);
+    last.slow.forEach(x => out.push(`  · ${fmt(x.ms)}  ${x.name}`));
+  }
+  return out.join("\n");
+}
+
+function clear() { for (const k of Object.keys(samples)) delete samples[k]; last = null; }
+function onUpdate(fn) { listener = fn; }
+
+module.exports = { track, noteBatch, stats, report, clear, onUpdate, percentile, fmt };
+
+};
 defs["src/presets.js"] = function (module, exports, require) {
 const { storage } = require("uxp");
 const { DEFAULTS } = require("./state");
@@ -602,6 +721,7 @@ module.exports = { list, load, save, remove };
 };
 defs["src/ps/bp.js"] = function (module, exports, require) {
 const { action, core, app } = require("photoshop");
+const perf = require("../perf");
 
 const px  = v => ({ _unit: "pixelsUnit",  _value: v });
 const pct = v => ({ _unit: "percentUnit", _value: v });
@@ -619,10 +739,13 @@ const channel = v => ({ _ref: "channel", _enum: "channel", _value: v });
 async function bp(descs) {
   const list = Array.isArray(descs) ? descs : [descs];
   let res;
+  const t0 = Date.now();
   try {
     res = await action.batchPlay(list, { modalBehavior: "execute" });
   } catch (e) {
     throw new Error(`${list.map(d => d._obj).join(",")}: ${e.message}`);
+  } finally {
+    perf.noteBatch(list.map(d => d._obj).join(","), Date.now() - t0);
   }
   res.forEach((r, i) => {
     if (r && r._obj === "error") throw new Error(`${list[i]._obj}: ${r.message}`);
@@ -876,6 +999,7 @@ module.exports = {
 defs["src/ps/live.js"] = function (module, exports, require) {
 const { app } = require("photoshop");
 const { state } = require("../state");
+const perf = require("../perf");
 const { modal, findLayer, selectLayer } = require("./bp");
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
@@ -913,6 +1037,11 @@ async function replaceHalftone(s) {
 const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask"];
 
 function sync(s, kinds) {
+  const label = "Vivo: " + [...kinds].filter(k => k !== "flushMask").sort().join("+") + (kinds.has("flushMask") ? " (máscara)" : "");
+  return perf.track(label, () => syncModal(s, kinds));
+}
+
+function syncModal(s, kinds) {
   return modal("Open-DTF: Ajuste en vivo", async () => {
     validateState();
     const L = state.layers;
@@ -987,6 +1116,7 @@ module.exports = { refreshMask };
 defs["src/ps/pipeline.js"] = function (module, exports, require) {
 const { app, constants } = require("photoshop");
 const { state, resetState } = require("../state");
+const perf = require("../perf");
 const {
   bp, bpThenId, modal, px, validId, layerById, targetLayer, channel, selectLayer, findLayer, baseName
 } = require("./bp");
@@ -1021,7 +1151,9 @@ async function mergeVisibleLayers(work) {
 
 // ---- Preparar ---------------------------------------------------------------
 // s = ajustes de la UI + widthPx / heightPx (tamaño objetivo a 300 ppi)
-async function runPrep(s) {
+function runPrep(s) { return perf.track("Preparar", () => runPrepTracked(s)); }
+
+async function runPrepTracked(s) {
   const src = app.activeDocument;
   if (!src) throw new Error("No hay documento abierto.");
   state.phase = "RUNNING";
@@ -1151,7 +1283,9 @@ async function cancelPrep() {
 }
 
 // ---- Aplicar -----------------------------------------------------------------
-async function applyPrep(s) {
+function applyPrep(s) { return perf.track("Aplicar", () => applyPrepTracked(s)); }
+
+async function applyPrepTracked(s) {
   await modal("Open-DTF: Aplicar", async (ctx) => {
     const work = getWorkDoc();
     app.activeDocument = work;

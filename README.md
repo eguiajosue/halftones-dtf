@@ -37,3 +37,6 @@ Sube la versión en `manifest.json` y `package.json` y haz merge a `main`. Despu
 
 ## Licencia
 [MIT](LICENSE). No afiliado a Adobe; Photoshop es una marca de Adobe.
+
+## Panel de depuración de rendimiento
+Oculto por defecto. Pulsa 5 veces seguidas sobre el nombre «Open-DTF» de la cabecera para mostrarlo u ocultarlo (se recuerda entre sesiones). Muestra, por tipo de operación (Preparar, Aplicar, cada ajuste en vivo), el nº de muestras, p50, p95 y máximo, el nº de `batchPlay` y los 3 más lentos de la última operación, junto con la versión de Photoshop y el tamaño del documento. Selecciona el texto y pégalo en la plantilla de incidencias de rendimiento.

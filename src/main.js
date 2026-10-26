@@ -8,6 +8,7 @@ const presets = require("./presets");
 const pipeline = require("./ps/pipeline");
 const live = require("./ps/live");
 const events = require("./ps/events");
+const perf = require("./perf");
 
 const $ = id => document.getElementById(id);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -356,8 +357,47 @@ async function onCancel() {
   resetToIdle();
 }
 
+// ---------- panel de depuración de rendimiento ----------
+function perfEnv() {
+  const env = [];
+  const safe = (fn, d = "?") => { try { const v = fn(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+  env.push(`Open-DTF ${safe(() => require("uxp").versions.plugin)} · Photoshop ${safe(() => app.version)} · UXP ${safe(() => require("uxp").versions.uxp)}`);
+  const doc = currentDoc();
+  if (doc) {
+    const w = dimPx(doc.width), h = dimPx(doc.height);
+    env.push(`Documento: ${w}×${h} px (${(w * h / 1e6).toFixed(1)} MP) · ${safe(() => doc.mode)} · ${safe(() => doc.bitsPerChannel)} · ${safe(() => doc.layers.length)} capas`);
+  }
+  env.push(`Ajustes: ${S.htType} ${S.lpi} LPI ${S.angle}° · halftone ${S.halftone} · knockout ${S.knockout} · sombras ${S.shadow} · limpieza ${S.cleanup} · trama nativa ${S.nativeFinal}`);
+  return env;
+}
+
+function renderPerf() {
+  if (!$("perfBlock") || $("perfBlock").classList.contains("hidden")) return;
+  $("perfOut").value = perf.report(perfEnv());
+}
+
+function setPerfVisible(on) {
+  setHidden($("perfBlock"), !on);
+  prefs.set("debugPerf", on ? "1" : "0");
+  renderPerf();
+}
+
 // ---------- cableado ----------
 function bindUI() {
+  // Panel de depuración: 5 pulsaciones seguidas sobre el nombre lo muestran u ocultan
+  let taps = 0, tapTimer = null;
+  document.querySelector(".wordmark").addEventListener("click", () => {
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => { taps = 0; }, 1500);
+    if (++taps >= 5) { taps = 0; setPerfVisible($("perfBlock").classList.contains("hidden")); }
+  });
+  $("btnPerfRefresh").addEventListener("click", renderPerf);
+  $("btnPerfClear").addEventListener("click", () => { perf.clear(); renderPerf(); });
+  $("btnPerfHide").addEventListener("click", () => setPerfVisible(false));
+  perf.onUpdate(renderPerf);
+  setHidden($("perfBlock"), prefs.get("debugPerf", "0") !== "1");
+  renderPerf();
+
   // Tamaño
   $("btnUnit").addEventListener("change", () => {
     unit = ["in", "cm", "mm"][pickerIndex($("btnUnit"))];
