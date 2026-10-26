@@ -57,9 +57,6 @@ async function runPrepTracked(s) {
       // 8 bits/canal: con 16/32 bits la memoria y el tiempo de cada render se duplican o cuadruplican
       try { await bp({ _obj: "convertMode", depth: 8, merge: false, rasterize: false }); }                // 🔍
       catch (e) { console.log("Profundidad 8 bits no aplicada:", e); }
-      at("motivos");
-      await L_.ensureAllPatterns();           // una vez por sesión; cambiar de tipo en vivo ya no abre archivos
-      app.activeDocument = work;
 
       at("historial");
       const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Open-DTF: Preparar" });
@@ -99,9 +96,14 @@ async function runPrepTracked(s) {
         await selectLayer(mapArtId);
         at("KO COLOR");
         const koId = await L_.makeSolid("KO COLOR", s.knockoutColor, "difference");
-        at("MAP DESAT / MAP LEVELS / umbral");
-        const desatId = await L_.makeHueSatDesat("MAP DESAT");
+        at("MAP DESAT / MAP LEVELS / MAP DOTS / umbral");
+        const desat = await L_.makeMapDesat("MAP DESAT", s.colorSens);
+        const desatId = desat.id;
+        state.desatKind = desat.kind;
         const levelsId = await L_.makeLevels("MAP LEVELS", s);
+        let curvesId = null;               // punto mín./máx.: si Photoshop no acepta la curva, la función queda desactivada
+        try { curvesId = await L_.makeCurves("MAP DOTS", s.dotMin, s.dotMax); }
+        catch (e) { console.log("Curva de punto mín./máx. no disponible:", e); }
         const thrId = await L_.makeThreshold("MAP THRESHOLD");
         at("capa de semitono");
         const htId = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
@@ -110,7 +112,7 @@ async function runPrepTracked(s) {
         ctx.reportProgress({ value: 0.6, commandName: "Construyendo mapa de semitono" });
 
         at("agrupar MAP GROUP");
-        const members = [mapBgId, mapArtId, koId, desatId, levelsId, thrId, htId].map(id => {
+        const members = [mapBgId, mapArtId, koId, desatId, levelsId, curvesId, thrId, htId].filter(id => id !== null).map(id => {
           const l = findLayer(work, id);
           if (!l) throw new Error(`Capa no encontrada (id ${id})`);
           return l;
@@ -120,6 +122,7 @@ async function runPrepTracked(s) {
 
         Object.assign(state.layers, { art: artId, shirt: shirtId, mapGroup: mapGroupId, mapArt: mapArtId,
           mapBg: mapBgId, ko: koId, desat: desatId, levels: levelsId, threshold: thrId, halftone: htId });
+        if (curvesId !== null) state.layers.curves = curvesId;
 
         // 6) Realce de sombras (filtro inteligente) y máscara en ART
         at("sombras y máscara");
@@ -164,6 +167,7 @@ async function cancelPrep() {
     if (src) app.activeDocument = src;
   });
   resetState();
+  await L_.cleanupPatterns();
 }
 
 // ---- Aplicar -----------------------------------------------------------------
@@ -230,6 +234,7 @@ async function applyPrepTracked(s) {
     ctx.reportProgress({ value: 1, commandName: "Listo" });
   });
   resetState();
+  await L_.cleanupPatterns();
 }
 
 module.exports = { runPrep, applyPrep, cancelPrep, getWorkDoc };

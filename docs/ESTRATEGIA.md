@@ -158,7 +158,7 @@ Los valores son objetivos de partida. Se fijan definitivamente tras la primera r
 | Versión | Contenido | Depende de |
 |---------|-----------|------------|
 | **1.4.x** | Fase 0: validar `docs/VERIFICACION.md` y medir con el panel la línea base de la 1.4.0 en S/M/L | — |
-| **1.5.0** — calidad del semitono | Mapa con Blanco y negro y sensibilidad de color (§2.2); punto mínimo y máximo con Curvas (§2.3); tiles exactos a escala 100 % (§2.4); hoja de calibración (§2.6) | 1.4.x |
+| **1.5.0** — calidad del semitono | Mapa con Blanco y negro y sensibilidad de color (§2.2) ✅; punto mínimo y máximo con Curvas (§2.3) ✅; tiles exactos a escala 100 % (§2.4) ✅; hoja de calibración (§2.6) ⏳ pendiente | 1.4.x |
 | **1.6.0** — rendimiento | Documento proxy + lupa 1:1 + `buildStack` compartido (§3.2); retardo adaptativo; purgar historial antes de Aplicar | Mediciones de 1.4.x |
 | **1.7.0** — salida | Método C (FM con punto mínimo); tramar a 600 ppi (§2.5); lotes (§3.3) | 1.6.0 (`buildStack`) |
 

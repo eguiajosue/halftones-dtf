@@ -95,6 +95,19 @@
                 <div id="sldShadow" class="slider grow minw0"></div>
                 <input type="text" id="inShadow" class="num" />
               </div>
+              <sp-divider size="small"></sp-divider>
+              <sp-body class="sub">Sensibilidad de color <span class="hint-inline">más tinta a los colores saturados</span></sp-body>
+              <div class="row">
+                <div id="sldSens" class="slider grow minw0"></div>
+                <input type="text" id="inSens" class="num" />
+              </div>
+              <sp-divider size="small"></sp-divider>
+              <sp-body class="sub">Punto mínimo y máximo <span class="hint-inline">% de tinta</span></sp-body>
+              <div class="row">
+                <div class="field grow minw0"><span class="field-lbl">Mín</span><input type="text" id="inDotMin" /></div>
+                <div class="field grow minw0"><span class="field-lbl">Máx</span><input type="text" id="inDotMax" /></div>
+              </div>
+              <sp-body class="hint">Por debajo del mínimo no se imprime punto; por encima del máximo la zona queda sólida.</sp-body>
               <sp-body class="hint"><kbd>↑</kbd><kbd>↓</kbd> ±1 · <kbd>⇧</kbd> ±10 en los campos</sp-body>
             </div>
           </section>

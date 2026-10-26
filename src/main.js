@@ -147,7 +147,7 @@ let eventsApi = null;
 // se recalcula tras 300 ms sin cambios (o de inmediato con "flushMask" en controles discretos).
 const MASK_DELAY = 300;
 const flushLater = debounce(() => touch("flushMask"), MASK_DELAY);
-const MASK_AFFECTING = new Set(["ko", "levels", "shadow", "ht", "htType", "mask"]);
+const MASK_AFFECTING = new Set(["ko", "levels", "shadow", "ht", "htType", "mask", "sens", "dots"]);
 
 function touch(...kinds) {
   if (state.phase !== "ACTIVE" || applying) return;
@@ -183,7 +183,7 @@ async function pump() {
 }
 
 // ---------- sincronización ajustes -> UI ----------
-let sIn, sOut, sShadow, sLpi, sAngle;
+let sIn, sOut, sShadow, sSens, sLpi, sAngle;
 
 function setSeg(id, attr, value) {
   $$(`#${id} .seg-btn`).forEach(b => setClass(b, "active", b.dataset[attr] === value));
@@ -216,6 +216,9 @@ function syncTones() {
   sIn.set({ black: S.black, gamma: S.gamma, white: S.white });
   sOut.set({ outBlack: S.outBlack, outWhite: S.outWhite });
   sShadow.set({ shadow: S.shadow });
+  $("inSens").value = S.colorSens;
+  $("inDotMin").value = S.dotMin; $("inDotMax").value = S.dotMax;
+  sSens.set({ colorSens: S.colorSens });
 }
 
 function syncColors() {
@@ -367,7 +370,7 @@ function perfEnv() {
     const w = dimPx(doc.width), h = dimPx(doc.height);
     env.push(`Documento: ${w}×${h} px (${(w * h / 1e6).toFixed(1)} MP) · ${safe(() => doc.mode)} · ${safe(() => doc.bitsPerChannel)} · ${safe(() => doc.layers.length)} capas`);
   }
-  env.push(`Ajustes: ${S.htType} ${S.lpi} LPI ${S.angle}° · halftone ${S.halftone} · knockout ${S.knockout} · sombras ${S.shadow} · limpieza ${S.cleanup} · trama nativa ${S.nativeFinal}`);
+  env.push(`Ajustes: ${S.htType} ${S.lpi} LPI ${S.angle}° · halftone ${S.halftone} · knockout ${S.knockout} · sombras ${S.shadow} · sens. color ${S.colorSens} · punto ${S.dotMin}-${S.dotMax} % · limpieza ${S.cleanup} · trama nativa ${S.nativeFinal}`);
   return env;
 }
 
@@ -465,6 +468,21 @@ function bindUI() {
   sShadow = sliders.createValueSlider($("sldShadow"), "shadow", { min: 0, max: 100 }, v => {
     S.shadow = v.shadow; $("inShadow").value = v.shadow;      // el realce es caro: se aplica al soltar
   }, () => touch("shadow", "flushMask"));
+  sSens = sliders.createValueSlider($("sldSens"), "colorSens", { min: 0, max: 100 }, v => {
+    S.colorSens = v.colorSens; $("inSens").value = v.colorSens; touch("sens");
+  });
+  bindNumber($("inSens"), v => {
+    if (Number.isFinite(v)) { S.colorSens = clamp(Math.round(v), 0, 100); touch("sens"); }
+    syncTones();
+  });
+  bindNumber($("inDotMin"), v => {
+    if (Number.isFinite(v)) { S.dotMin = clamp(Math.round(v), 0, 40); touch("dots"); }
+    syncTones();
+  });
+  bindNumber($("inDotMax"), v => {
+    if (Number.isFinite(v)) { S.dotMax = clamp(Math.round(v), 60, 100); touch("dots"); }
+    syncTones();
+  });
   const levelField = (id, fn, opts) => bindNumber($(id), v => {
     if (Number.isFinite(v)) { fn(v); touch("levels"); }
     syncTones();
@@ -481,9 +499,10 @@ function bindUI() {
 
   $("btnDefaults").addEventListener("click", () => {
     Object.assign(S, { black: DEFAULTS.black, gamma: DEFAULTS.gamma, white: DEFAULTS.white,
-                       outBlack: DEFAULTS.outBlack, outWhite: DEFAULTS.outWhite, shadow: DEFAULTS.shadow });
+                       outBlack: DEFAULTS.outBlack, outWhite: DEFAULTS.outWhite, shadow: DEFAULTS.shadow,
+                       colorSens: DEFAULTS.colorSens, dotMin: DEFAULTS.dotMin, dotMax: DEFAULTS.dotMax });
     syncTones();
-    touch("levels", "shadow", "flushMask");
+    touch("levels", "shadow", "sens", "dots", "flushMask");
   });
 
   // Vista y acabado

@@ -41,3 +41,11 @@ El plugin se escribió sin poder ejecutarlo en Photoshop. Antes de distribuirlo,
 - [ ] 5 pulsaciones sobre «Open-DTF» muestran/ocultan el panel; el estado se conserva al reiniciar Photoshop
 - [ ] `app.version`, `require("uxp").versions` y `doc.bitsPerChannel` devuelven valores (si no, el informe muestra «?»)
 - [ ] El informe se actualiza tras cada operación y el texto se puede seleccionar y copiar desde el `textarea`
+
+## 1.5.0: calidad del semitono (pendiente de validar)
+- [ ] Capa **Blanco y negro** como mapa (`make adjustmentLayer` con `blackAndWhite`, clave `grain` = verde) y su `set` en vivo. Si falla, el plugin usa Tono/Saturación y el control de sensibilidad queda sin efecto. Prueba: un rojo puro sobre prenda negra debe llegar a ≥ 90 % de tinta con sensibilidad 100
+- [ ] Capa **Curvas** (`MAP DOTS`) con puntos `paint`; comprobar que los escalones se respetan (Photoshop puede suavizarlos como spline). Si falla al crearla, el control de punto mín./máx. no hace nada
+- [ ] Tiles exactos `ht_<tipo>_<n>.png` (3-48 px) a escala ~100 %: comparar la curva tonal contra el tile de 128 px de la 1.4 con una rampa 0-100 %
+- [ ] Cambiar el LPI cruzando una celda entera cambia de motivo (`needsNewTile` → `replaceHalftone`); medir el coste en el panel de rendimiento
+- [ ] Borrado de motivos de la biblioteca al aplicar/cancelar (`delete` con `_ref: "pattern"`, `_name`)
+- [ ] Los presets antiguos no traen `colorSens`/`dotMin`/`dotMax`: se completan con 50/0/100. **El valor por defecto de sensibilidad (50) cambia el aspecto de los colores saturados respecto a la 1.4**

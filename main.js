@@ -18,6 +18,44 @@
     defs[id](m, m.exports, function (r) { return r.charAt(0) === "." ? load(norm(id, r)) : nativeRequire(r); });
     return m.exports;
   }
+defs["src/halftone.js"] = function (module, exports, require) {
+// Cálculos puros del semitono (sin Photoshop): se prueban en Node.
+const { clamp } = require("./util");
+
+const EXACT_MIN = 3, EXACT_MAX = 48;      // tamaños de celda con tile propio (assets/tiles/ht_<tipo>_<n>.png)
+
+// Celda de la trama en px y tile que la reproduce a escala ~100 %. Fuera de rango se usa el tile más cercano.
+function tileFor(lpi, resolution) {
+  const cell = resolution / lpi;
+  const n = clamp(Math.round(cell), EXACT_MIN, EXACT_MAX);
+  return { cell, n, scale: Math.max(1, (100 * cell) / n) };
+}
+
+// Pesos de la capa Blanco y negro (porcentaje por color). Con sensibilidad 0 son los de Photoshop;
+// con 100 todos los colores saturados cuentan como tinta completa. Neutros: sin cambio.
+const BW_BASE = { red: 40, yellow: 60, green: 40, cyan: 60, blue: 20, magenta: 80 };
+function bwWeights(sens) {
+  const t = clamp(sens, 0, 100) / 100;
+  const out = {};
+  for (const k of Object.keys(BW_BASE)) out[k] = Math.round(BW_BASE[k] + (100 - BW_BASE[k]) * t);
+  return out;
+}
+
+// Puntos de la curva (entrada, salida) en 0..255: por debajo del punto mínimo no hay punto (0),
+// por encima del máximo es sólido (255), y entre ambos la respuesta es lineal.
+function dotCurve(minPct, maxPct) {
+  const lo = Math.round(clamp(minPct, 0, 100) * 255 / 100), hi = Math.round(clamp(maxPct, 0, 100) * 255 / 100);
+  const pts = [[0, 0]];
+  if (lo > 0) pts.push([lo - 1, 0], [lo, lo]);
+  if (hi < 255) pts.push([hi, hi], [hi + 1, 255]);
+  pts.push([255, 255]);
+  const seen = new Set();
+  return pts.filter(([x]) => (seen.has(x) ? false : (seen.add(x), true)));
+}
+
+module.exports = { EXACT_MIN, EXACT_MAX, tileFor, bwWeights, dotCurve };
+
+};
 defs["src/main.js"] = function (module, exports, require) {
 const { app } = require("photoshop");
 const { state, DEFAULTS, resetState } = require("./state");
@@ -168,7 +206,7 @@ let eventsApi = null;
 // se recalcula tras 300 ms sin cambios (o de inmediato con "flushMask" en controles discretos).
 const MASK_DELAY = 300;
 const flushLater = debounce(() => touch("flushMask"), MASK_DELAY);
-const MASK_AFFECTING = new Set(["ko", "levels", "shadow", "ht", "htType", "mask"]);
+const MASK_AFFECTING = new Set(["ko", "levels", "shadow", "ht", "htType", "mask", "sens", "dots"]);
 
 function touch(...kinds) {
   if (state.phase !== "ACTIVE" || applying) return;
@@ -204,7 +242,7 @@ async function pump() {
 }
 
 // ---------- sincronización ajustes -> UI ----------
-let sIn, sOut, sShadow, sLpi, sAngle;
+let sIn, sOut, sShadow, sSens, sLpi, sAngle;
 
 function setSeg(id, attr, value) {
   $$(`#${id} .seg-btn`).forEach(b => setClass(b, "active", b.dataset[attr] === value));
@@ -237,6 +275,9 @@ function syncTones() {
   sIn.set({ black: S.black, gamma: S.gamma, white: S.white });
   sOut.set({ outBlack: S.outBlack, outWhite: S.outWhite });
   sShadow.set({ shadow: S.shadow });
+  $("inSens").value = S.colorSens;
+  $("inDotMin").value = S.dotMin; $("inDotMax").value = S.dotMax;
+  sSens.set({ colorSens: S.colorSens });
 }
 
 function syncColors() {
@@ -388,7 +429,7 @@ function perfEnv() {
     const w = dimPx(doc.width), h = dimPx(doc.height);
     env.push(`Documento: ${w}×${h} px (${(w * h / 1e6).toFixed(1)} MP) · ${safe(() => doc.mode)} · ${safe(() => doc.bitsPerChannel)} · ${safe(() => doc.layers.length)} capas`);
   }
-  env.push(`Ajustes: ${S.htType} ${S.lpi} LPI ${S.angle}° · halftone ${S.halftone} · knockout ${S.knockout} · sombras ${S.shadow} · limpieza ${S.cleanup} · trama nativa ${S.nativeFinal}`);
+  env.push(`Ajustes: ${S.htType} ${S.lpi} LPI ${S.angle}° · halftone ${S.halftone} · knockout ${S.knockout} · sombras ${S.shadow} · sens. color ${S.colorSens} · punto ${S.dotMin}-${S.dotMax} % · limpieza ${S.cleanup} · trama nativa ${S.nativeFinal}`);
   return env;
 }
 
@@ -486,6 +527,21 @@ function bindUI() {
   sShadow = sliders.createValueSlider($("sldShadow"), "shadow", { min: 0, max: 100 }, v => {
     S.shadow = v.shadow; $("inShadow").value = v.shadow;      // el realce es caro: se aplica al soltar
   }, () => touch("shadow", "flushMask"));
+  sSens = sliders.createValueSlider($("sldSens"), "colorSens", { min: 0, max: 100 }, v => {
+    S.colorSens = v.colorSens; $("inSens").value = v.colorSens; touch("sens");
+  });
+  bindNumber($("inSens"), v => {
+    if (Number.isFinite(v)) { S.colorSens = clamp(Math.round(v), 0, 100); touch("sens"); }
+    syncTones();
+  });
+  bindNumber($("inDotMin"), v => {
+    if (Number.isFinite(v)) { S.dotMin = clamp(Math.round(v), 0, 40); touch("dots"); }
+    syncTones();
+  });
+  bindNumber($("inDotMax"), v => {
+    if (Number.isFinite(v)) { S.dotMax = clamp(Math.round(v), 60, 100); touch("dots"); }
+    syncTones();
+  });
   const levelField = (id, fn, opts) => bindNumber($(id), v => {
     if (Number.isFinite(v)) { fn(v); touch("levels"); }
     syncTones();
@@ -502,9 +558,10 @@ function bindUI() {
 
   $("btnDefaults").addEventListener("click", () => {
     Object.assign(S, { black: DEFAULTS.black, gamma: DEFAULTS.gamma, white: DEFAULTS.white,
-                       outBlack: DEFAULTS.outBlack, outWhite: DEFAULTS.outWhite, shadow: DEFAULTS.shadow });
+                       outBlack: DEFAULTS.outBlack, outWhite: DEFAULTS.outWhite, shadow: DEFAULTS.shadow,
+                       colorSens: DEFAULTS.colorSens, dotMin: DEFAULTS.dotMin, dotMax: DEFAULTS.dotMax });
     syncTones();
-    touch("levels", "shadow", "flushMask");
+    touch("levels", "shadow", "sens", "dots", "flushMask");
   });
 
   // Vista y acabado
@@ -845,8 +902,9 @@ defs["src/ps/layers.js"] = function (module, exports, require) {
 const { app } = require("photoshop");
 const { storage } = require("uxp");
 const { TILE_PX, state } = require("../state");
+const { tileFor, bwWeights, dotCurve } = require("../halftone");
 const {
-  bp, bpThenId, px, pct, deg, rgb, layerById, targetLayer, selectLayer
+  bp, bpThenId, modal, px, pct, deg, rgb, layerById, targetLayer, selectLayer
 } = require("./bp");
 
 async function makeSolid(name, color, mode = "normal") {
@@ -855,13 +913,49 @@ async function makeSolid(name, color, mode = "normal") {
              type: { _obj: "solidColorLayer", color: rgb(color) } } });
 }
 
-async function makeHueSatDesat(name) {
-  return bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
-    using: { _obj: "adjustmentLayer", name,
-      type: { _obj: "hueSaturation", presetKind: { _enum: "presetKindType", _value: "presetKindCustom" },
-              colorize: false,
-              adjustment: [{ _obj: "hueSatAdjustmentV2", hue: 0, saturation: -100, lightness: 0 }] } } });
+const CUSTOM = { _enum: "presetKindType", _value: "presetKindCustom" };
+
+function bwType(sens) {
+  const w = bwWeights(sens);
+  return { _obj: "blackAndWhite", presetKind: CUSTOM, useTint: false,
+           red: w.red, yellow: w.yellow, grain: w.green, cyan: w.cyan, blue: w.blue, magenta: w.magenta };   // 🔍 "grain" = verde
 }
+
+// Mapa de tinta en grises. Blanco y negro con pesos altos hace que los colores saturados reciban tinta
+// completa (con Tono/Saturación −100 un rojo puro quedaba en ~50 %). Si Photoshop no lo acepta, se usa
+// Tono/Saturación como antes.
+async function makeMapDesat(name, sens) {
+  try {
+    const id = await bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+      using: { _obj: "adjustmentLayer", name, type: bwType(sens) } });
+    return { id, kind: "bw" };
+  } catch (e) {
+    console.log("Blanco y negro no disponible, se usa Tono/Saturación:", e);
+    const id = await bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+      using: { _obj: "adjustmentLayer", name,
+        type: { _obj: "hueSaturation", presetKind: CUSTOM, colorize: false,
+                adjustment: [{ _obj: "hueSatAdjustmentV2", hue: 0, saturation: -100, lightness: 0 }] } } });
+    return { id, kind: "hs" };
+  }
+}
+
+async function setMapDesat(id, sens) {
+  if (state.desatKind !== "bw") return;
+  await bp({ _obj: "set", _target: [{ _ref: "adjustmentLayer", _id: id }], to: bwType(sens) });
+}
+
+// Punto mínimo / máximo como curva con escalones
+const curveType = (min, max) => ({ _obj: "curves", presetKind: CUSTOM,
+  adjustment: [{ _obj: "curvesAdjustment", channel: { _ref: "channel", _enum: "channel", _value: "composite" },
+    curve: dotCurve(min, max).map(([x, y]) => ({ _obj: "paint", horizontal: x, vertical: y })) }] });      // 🔍
+
+async function makeCurves(name, min, max) {
+  return bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+    using: { _obj: "adjustmentLayer", name, type: curveType(min, max) } });
+}
+
+const setCurves = (id, min, max) => bp({ _obj: "set", _target: [{ _ref: "adjustmentLayer", _id: id }],
+  to: curveType(min, max) });
 
 async function makeThreshold(name, level = 128) {
   return bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
@@ -889,7 +983,8 @@ const setSolid = (id, c) => bp({ _obj: "set", _target: [{ _ref: "contentLayer", 
 
 // ---- Semitono -------------------------------------------------------------
 
-const definedPatterns = new Map();   // nombre -> ID (o null) definido en esta sesión
+const definedPatterns = new Map();   // nombre -> { name, id, tilePx } ya disponible en esta sesión
+const ownPatterns = new Set();       // motivos que definió este plugin (se borran de la biblioteca al terminar)
 
 // Nombres de motivos que ya existen en la biblioteca del usuario (persisten entre sesiones).
 async function libraryPatternNames() {
@@ -903,65 +998,96 @@ async function libraryPatternNames() {
   } catch (e) { return new Set(); }
 }
 
-// Define el motivo de umbral a partir del PNG propio del plugin, solo si no existe ya en la biblioteca.
-async function ensurePattern(type) {
-  const name = `HT ${type}`;
-  if (definedPatterns.has(name)) return { name, id: definedPatterns.get(name) };
-  if ((await libraryPatternNames()).has(name)) {
-    definedPatterns.set(name, null);        // se usa por nombre; evita duplicados entre sesiones
-    return { name, id: null };
-  }
-
+async function tileEntry(file) {
   const folder = await storage.localFileSystem.getPluginFolder();
-  let entry;
-  try {
-    entry = await folder.getEntry(`assets/tiles/ht_${type.toLowerCase()}.png`);
-  } catch (e) {
-    throw new Error(`No se encuentra el recurso de semitono (${type}). Reinstala el plugin.`);
-  }
+  try { return await folder.getEntry(`assets/tiles/${file}`); } catch (e) { return null; }
+}
+
+// Abre el PNG, lo define como motivo y devuelve su ID (o null).
+async function definePattern(entry, name) {
   const work = app.activeDocument;
   const tile = await app.open(entry);
-  let id = null;
   try {
     await bp({ _obj: "set", _target: [{ _ref: "channel", _property: "selection" }],
                to: { _enum: "ordinal", _value: "allEnum" } });
     const res = await bp({ _obj: "make", _target: [{ _ref: "pattern" }],
       using: { _ref: "property", _property: "selection" }, name });          // 🔍 Definir motivo
-    id = (res && res[0] && res[0].ID) || null;
+    ownPatterns.add(name);
+    return (res && res[0] && res[0].ID) || null;
   } finally {
     await tile.closeWithoutSaving();
     app.activeDocument = work;
   }
-  definedPatterns.set(name, id);
-  return { name, id };
 }
 
-// Precarga los 4 motivos (una vez por sesión) para que cambiar de tipo en vivo no abra archivos.
-async function ensureAllPatterns() {
-  for (const type of ["ROUND", "LINE", "DIAMOND", "ELLIPSE"]) await ensurePattern(type);
+// Motivo de la celda de n px (ht_<tipo>_<n>.png, a escala ~100 %). Si el archivo no existe se usa el
+// tile único de 128 px escalado, como en la 1.4. Se reutiliza el de la biblioteca si ya está definido.
+async function ensurePattern(type, n) {
+  const exact = `HT ${type} ${n}`;
+  if (definedPatterns.has(exact)) return definedPatterns.get(exact);
+  const legacy = `HT ${type}`;
+  if (definedPatterns.has(legacy) && !(await tileEntry(`ht_${type.toLowerCase()}_${n}.png`))) return definedPatterns.get(legacy);
+
+  const lib = await libraryPatternNames();
+  const remember = (name, id, tilePx) => { const p = { name, id, tilePx }; definedPatterns.set(name, p); return p; };
+  if (lib.has(exact)) return remember(exact, null, n);
+
+  const entry = await tileEntry(`ht_${type.toLowerCase()}_${n}.png`);
+  if (entry) return remember(exact, await definePattern(entry, exact), n);
+
+  if (lib.has(legacy)) return remember(legacy, null, TILE_PX);
+  const old = await tileEntry(`ht_${type.toLowerCase()}.png`);
+  if (!old) throw new Error(`No se encuentra el recurso de semitono (${type}). Reinstala el plugin.`);
+  return remember(legacy, await definePattern(old, legacy), TILE_PX);
 }
 
-function patternScale(lpi, resolution) {
-  return Math.max(1, 100 * (resolution / lpi) / TILE_PX);
+// Escala del motivo: ~100 % con tile exacto; con el tile de 128 px, la de la 1.4
+function patternScale(lpi, resolution, tilePx) {
+  if (tilePx === TILE_PX) return Math.max(1, 100 * (resolution / lpi) / TILE_PX);
+  return tileFor(lpi, resolution).scale;
+}
+
+// ¿Hay que cambiar de motivo al variar el LPI? (otra celda entera => otro tile)
+function needsNewTile(lpi) {
+  const t = state.htTile;
+  if (!t.tilePx || t.tilePx === TILE_PX) return false;
+  return tileFor(lpi, app.activeDocument.resolution).n !== t.n;
 }
 
 // Crea la capa de relleno de motivo en modo Hard Mix (relleno 100 %).
 async function makeHalftoneLayer(type, lpi, angle) {
-  const { name, id } = await ensurePattern(type);
   const res = app.activeDocument.resolution;
-  const pattern = id ? { _obj: "pattern", name, ID: id } : { _obj: "pattern", name };
+  const p = await ensurePattern(type, tileFor(lpi, res).n);
+  const pattern = p.id ? { _obj: "pattern", name: p.name, ID: p.id } : { _obj: "pattern", name: p.name };
   const layerId = await bpThenId({ _obj: "make", _target: [{ _ref: "contentLayer" }],
     using: { _obj: "contentLayer", name: "HT PATTERN",
-      type: { _obj: "patternLayer", pattern, scale: pct(patternScale(lpi, res)), angle: deg(angle) } } }); // 🔍
+      type: { _obj: "patternLayer", pattern, scale: pct(patternScale(lpi, res, p.tilePx)), angle: deg(angle) } } }); // 🔍
   await bp({ _obj: "set", _target: [layerById(layerId)],
     to: { _obj: "layer", mode: { _enum: "blendMode", _value: "hardMix" }, fillOpacity: pct(100) } });
+  state.htTile = { type, n: p.tilePx === TILE_PX ? 0 : p.tilePx, tilePx: p.tilePx };
   return layerId;
 }
 
 async function setHalftoneParams(id, lpi, angle) {
   const res = app.activeDocument.resolution;
   await bp({ _obj: "set", _target: [{ _ref: "contentLayer", _id: id }],
-    to: { _obj: "patternLayer", scale: pct(patternScale(lpi, res)), angle: deg(angle) } });   // 🔍
+    to: { _obj: "patternLayer", scale: pct(patternScale(lpi, res, state.htTile.tilePx)), angle: deg(angle) } });   // 🔍
+}
+
+// Al terminar la sesión de trabajo, quita de la biblioteca los motivos que definió el plugin
+// (las capas de relleno llevan su propia copia). Si falla no pasa nada: se reutilizarán por nombre.
+async function cleanupPatterns() {
+  if (!ownPatterns.size) return;
+  try {
+    await modal("Open-DTF: limpiar motivos", async () => {
+      for (const name of ownPatterns) {
+        try { await bp({ _obj: "delete", _target: [{ _ref: "pattern", _name: name }] }); }                      // 🔍
+        catch (e) { console.log("No se pudo borrar el motivo", name, e); }
+      }
+    });
+    for (const name of ownPatterns) definedPatterns.delete(name);
+    ownPatterns.clear();
+  } catch (e) { console.log("cleanupPatterns:", e); }
 }
 
 // ---- Realce de sombras (Sombras/Iluminaciones como filtro inteligente) ------
@@ -991,8 +1117,8 @@ async function setShadowBoost(amount) {
 }
 
 module.exports = {
-  makeSolid, makeHueSatDesat, makeThreshold, makeLevels, setLevels, setSolid,
-  makeHalftoneLayer, setHalftoneParams, setShadowBoost, ensureAllPatterns
+  makeSolid, makeMapDesat, setMapDesat, makeCurves, setCurves, makeThreshold, makeLevels, setLevels, setSolid,
+  makeHalftoneLayer, setHalftoneParams, needsNewTile, cleanupPatterns, setShadowBoost
 };
 
 };
@@ -1033,8 +1159,8 @@ async function replaceHalftone(s) {
 }
 
 // Aplica en una sola operación modal (una entrada de historial) solo lo que cambió.
-// kinds: shirt, ko, levels, shadow, ht, htType, mask, preview, flushMask
-const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask"];
+// kinds: shirt, ko, levels, sens, dots, shadow, ht, htType, mask, preview, flushMask
+const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask", "sens", "dots"];
 
 function sync(s, kinds) {
   const label = "Vivo: " + [...kinds].filter(k => k !== "flushMask").sort().join("+") + (kinds.has("flushMask") ? " (máscara)" : "");
@@ -1048,8 +1174,11 @@ function syncModal(s, kinds) {
     if (kinds.has("shirt")) await L_.setSolid(L.shirt, s.shirt);
     if (kinds.has("ko")) { await L_.setSolid(L.ko, s.knockoutColor); await L_.setSolid(L.mapBg, s.knockoutColor); }
     if (kinds.has("levels")) await L_.setLevels(L.levels, s);
+    if (kinds.has("sens")) await L_.setMapDesat(L.desat, s.colorSens);
+    if (kinds.has("dots") && L.curves) await L_.setCurves(L.curves, s.dotMin, s.dotMax);
     if (kinds.has("shadow")) await L_.setShadowBoost(s.shadow);
-    if (kinds.has("htType")) await replaceHalftone(s);
+    // Otro LPI puede necesitar otro tile (celda entera distinta): se cambia la capa de motivo
+    if (kinds.has("htType") || (kinds.has("ht") && L_.needsNewTile(s.lpi))) await replaceHalftone(s);
     else if (kinds.has("ht")) await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
 
     // La máscara (cara: compone todo el documento al 100 %) solo se recalcula con "flushMask";
@@ -1061,7 +1190,7 @@ function syncModal(s, kinds) {
   }, { history: true });
 }
 
-module.exports = { validateState, sync, ALL_KINDS: ["shirt", "ko", "levels", "shadow", "htType", "mask", "flushMask"] };
+module.exports = { validateState, sync, ALL_KINDS: ["shirt", "ko", "levels", "sens", "dots", "shadow", "htType", "mask", "flushMask"] };
 
 };
 defs["src/ps/mask.js"] = function (module, exports, require) {
@@ -1173,9 +1302,6 @@ async function runPrepTracked(s) {
       // 8 bits/canal: con 16/32 bits la memoria y el tiempo de cada render se duplican o cuadruplican
       try { await bp({ _obj: "convertMode", depth: 8, merge: false, rasterize: false }); }                // 🔍
       catch (e) { console.log("Profundidad 8 bits no aplicada:", e); }
-      at("motivos");
-      await L_.ensureAllPatterns();           // una vez por sesión; cambiar de tipo en vivo ya no abre archivos
-      app.activeDocument = work;
 
       at("historial");
       const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Open-DTF: Preparar" });
@@ -1215,9 +1341,14 @@ async function runPrepTracked(s) {
         await selectLayer(mapArtId);
         at("KO COLOR");
         const koId = await L_.makeSolid("KO COLOR", s.knockoutColor, "difference");
-        at("MAP DESAT / MAP LEVELS / umbral");
-        const desatId = await L_.makeHueSatDesat("MAP DESAT");
+        at("MAP DESAT / MAP LEVELS / MAP DOTS / umbral");
+        const desat = await L_.makeMapDesat("MAP DESAT", s.colorSens);
+        const desatId = desat.id;
+        state.desatKind = desat.kind;
         const levelsId = await L_.makeLevels("MAP LEVELS", s);
+        let curvesId = null;               // punto mín./máx.: si Photoshop no acepta la curva, la función queda desactivada
+        try { curvesId = await L_.makeCurves("MAP DOTS", s.dotMin, s.dotMax); }
+        catch (e) { console.log("Curva de punto mín./máx. no disponible:", e); }
         const thrId = await L_.makeThreshold("MAP THRESHOLD");
         at("capa de semitono");
         const htId = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
@@ -1226,7 +1357,7 @@ async function runPrepTracked(s) {
         ctx.reportProgress({ value: 0.6, commandName: "Construyendo mapa de semitono" });
 
         at("agrupar MAP GROUP");
-        const members = [mapBgId, mapArtId, koId, desatId, levelsId, thrId, htId].map(id => {
+        const members = [mapBgId, mapArtId, koId, desatId, levelsId, curvesId, thrId, htId].filter(id => id !== null).map(id => {
           const l = findLayer(work, id);
           if (!l) throw new Error(`Capa no encontrada (id ${id})`);
           return l;
@@ -1236,6 +1367,7 @@ async function runPrepTracked(s) {
 
         Object.assign(state.layers, { art: artId, shirt: shirtId, mapGroup: mapGroupId, mapArt: mapArtId,
           mapBg: mapBgId, ko: koId, desat: desatId, levels: levelsId, threshold: thrId, halftone: htId });
+        if (curvesId !== null) state.layers.curves = curvesId;
 
         // 6) Realce de sombras (filtro inteligente) y máscara en ART
         at("sombras y máscara");
@@ -1280,6 +1412,7 @@ async function cancelPrep() {
     if (src) app.activeDocument = src;
   });
   resetState();
+  await L_.cleanupPatterns();
 }
 
 // ---- Aplicar -----------------------------------------------------------------
@@ -1346,6 +1479,7 @@ async function applyPrepTracked(s) {
     ctx.reportProgress({ value: 1, commandName: "Listo" });
   });
   resetState();
+  await L_.cleanupPatterns();
 }
 
 module.exports = { runPrep, applyPrep, cancelPrep, getWorkDoc };
@@ -1456,7 +1590,8 @@ const DEFAULTS = {
   lpi: 30, angle: 33, htType: "ROUND", halftone: true, knockout: true,
   knockoutColor: { r: 0, g: 0, b: 0 }, shirt: { r: 0, g: 0, b: 0 }, linked: true,
   black: 7, gamma: 2.0, white: 100, outBlack: 0, outWhite: 255, shadow: 0,
-  cleanup: "standard", defringe: false, nativeFinal: false
+  cleanup: "standard", defringe: false, nativeFinal: false,
+  colorSens: 50, dotMin: 0, dotMax: 100
 };
 
 const state = {
@@ -1467,6 +1602,8 @@ const state = {
   settings: JSON.parse(JSON.stringify(DEFAULTS)),
   previewMode: "shirt",
   shadowOn: false,
+  desatKind: "hs",        // MAP DESAT: "bw" (Blanco y negro) o "hs" (Tono/Saturación, alternativa)
+  htTile: { type: null, n: 0, tilePx: 0 },   // tile del motivo en uso
   maskFresh: false        // la máscara de ART refleja los ajustes actuales
 };
 
@@ -1478,6 +1615,8 @@ function resetState() {
   state.previewMode = "shirt";
   state.shadowOn = false;
   state.maskFresh = false;
+  state.desatKind = "hs";
+  state.htTile = { type: null, n: 0, tilePx: 0 };
 }
 
 module.exports = { TILE_PX, DEFAULTS, state, resetState };

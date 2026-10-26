@@ -133,3 +133,47 @@ test("perf: percentiles, track anidado y informe", async () => {
   perf.clear();
   assert.match(perf.report(), /Sin mediciones/);
 });
+
+test("halftone: tile exacto para la celda y escala ~100 %", () => {
+  const { tileFor, EXACT_MIN, EXACT_MAX } = src("halftone");
+  const t = tileFor(30, 300);                       // celda de 10 px
+  assert.equal(t.n, 10);
+  assert.equal(t.scale, 100);
+  const u = tileFor(45, 300);                       // celda de 6,67 px -> tile de 7
+  assert.equal(u.n, 7);
+  assert.ok(Math.abs(u.scale - 95.24) < 0.1);
+  assert.equal(tileFor(234, 300).n, EXACT_MIN);     // fuera de rango: tile más cercano
+  assert.equal(tileFor(5, 300).n, EXACT_MAX);
+  assert.ok(tileFor(234, 300).scale >= 1);
+});
+
+test("halftone: pesos de Blanco y negro según la sensibilidad", () => {
+  const { bwWeights } = src("halftone");
+  assert.deepEqual(bwWeights(0), { red: 40, yellow: 60, green: 40, cyan: 60, blue: 20, magenta: 80 });
+  assert.deepEqual(Object.values(bwWeights(100)), [100, 100, 100, 100, 100, 100]);
+  const mid = bwWeights(50);
+  assert.equal(mid.red, 70);
+  assert.equal(mid.blue, 60);
+  assert.deepEqual(bwWeights(999), bwWeights(100));       // se limita a 0..100
+});
+
+test("halftone: curva de punto mínimo y máximo", () => {
+  const { dotCurve } = src("halftone");
+  assert.deepEqual(dotCurve(0, 100), [[0, 0], [255, 255]]);                 // identidad
+  assert.deepEqual(dotCurve(10, 100), [[0, 0], [25, 0], [26, 26], [255, 255]]);
+  assert.deepEqual(dotCurve(0, 90), [[0, 0], [230, 230], [231, 255], [255, 255]]);
+  const xs = dotCurve(5, 95).map(p => p[0]);
+  assert.deepEqual(xs, [...xs].sort((a, b) => a - b));                      // entradas crecientes y sin repetir
+  assert.equal(new Set(xs).size, xs.length);
+  assert.deepEqual(dotCurve(0.2, 100)[0], [0, 0]);                          // lo = 1 no duplica el punto (0,0)
+});
+
+test("tiles exactos: existen para todos los tipos y tamaños", () => {
+  const fs = require("fs"), path = require("path");
+  const { EXACT_MIN, EXACT_MAX } = src("halftone");
+  for (const t of ["round", "line", "diamond", "ellipse"]) {
+    for (let n = EXACT_MIN; n <= EXACT_MAX; n++) {
+      assert.ok(fs.existsSync(path.join(__dirname, "..", "assets", "tiles", `ht_${t}_${n}.png`)), `${t} ${n}`);
+    }
+  }
+});

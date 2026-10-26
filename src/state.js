@@ -4,7 +4,8 @@ const DEFAULTS = {
   lpi: 30, angle: 33, htType: "ROUND", halftone: true, knockout: true,
   knockoutColor: { r: 0, g: 0, b: 0 }, shirt: { r: 0, g: 0, b: 0 }, linked: true,
   black: 7, gamma: 2.0, white: 100, outBlack: 0, outWhite: 255, shadow: 0,
-  cleanup: "standard", defringe: false, nativeFinal: false
+  cleanup: "standard", defringe: false, nativeFinal: false,
+  colorSens: 50, dotMin: 0, dotMax: 100
 };
 
 const state = {
@@ -15,6 +16,8 @@ const state = {
   settings: JSON.parse(JSON.stringify(DEFAULTS)),
   previewMode: "shirt",
   shadowOn: false,
+  desatKind: "hs",        // MAP DESAT: "bw" (Blanco y negro) o "hs" (Tono/Saturación, alternativa)
+  htTile: { type: null, n: 0, tilePx: 0 },   // tile del motivo en uso
   maskFresh: false        // la máscara de ART refleja los ajustes actuales
 };
 
@@ -26,6 +29,8 @@ function resetState() {
   state.previewMode = "shirt";
   state.shadowOn = false;
   state.maskFresh = false;
+  state.desatKind = "hs";
+  state.htTile = { type: null, n: 0, tilePx: 0 };
 }
 
 module.exports = { TILE_PX, DEFAULTS, state, resetState };
