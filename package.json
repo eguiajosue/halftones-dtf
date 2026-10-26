@@ -8,6 +8,7 @@
     "tiles": "python3 tools/make_tiles.py assets/tiles",
     "icons": "python3 tools/make_icons.py assets/icons",
     "build": "node tools/build.js",
-    "package": "npm run check && npm run build && node tools/package.js"
+    "package": "npm run check && npm test && npm run build && node tools/package.js",
+    "test": "node --test \"tests/*.test.js\""
   }
 }

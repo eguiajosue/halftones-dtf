@@ -18,7 +18,7 @@ Plugin **libre y de código abierto** (MIT) para Adobe Photoshop que prepara dis
 1. Instala **UXP Developer Tool**; en Photoshop activa *Preferencias › Plugins › Habilitar modo desarrollador*.
 2. UDT → *Add Plugin* → `manifest.json` → *Load*.
 3. El código está en `src/`. `npm run build` genera `main.js` (el bundle que carga Photoshop): reconstrúyelo tras editar `src/`.
-4. `npm run check` (regla nativa y sintaxis) · `npm run package` → `dist/OpenDTF_v<versión>.ccx`.
+4. `npm run check` (regla nativa y sintaxis) · `npm test` (lógica pura con `node:test`, sin dependencias) · `npm run package` → `dist/OpenDTF_v<versión>.ccx`.
 5. `npm run tiles` / `npm run icons` regeneran los recursos (Python 3, solo herramienta de desarrollo).
 
 Más detalles en [CONTRIBUTING.md](CONTRIBUTING.md). Los descriptores de batchPlay pendientes de validar están en [`docs/VERIFICACION.md`](docs/VERIFICACION.md).
