@@ -1,13 +1,14 @@
 const { app } = require("photoshop");
 const { state, DEFAULTS, resetState } = require("./state");
 const { debounce, clamp } = require("./util");
-const { fromPx, toPx, lpiToLpc } = require("./ui/units");
+const { RES, fromPx, toPx, lpiToLpc, wholeCellLpi } = require("./ui/units");
 const { pickColor, toCss } = require("./ui/colorPicker");
 const sliders = require("./ui/levelsSlider");
 const presets = require("./presets");
 const pipeline = require("./ps/pipeline");
 const live = require("./ps/live");
 const events = require("./ps/events");
+const perf = require("./perf");
 
 const $ = id => document.getElementById(id);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -22,6 +23,8 @@ const prefs = {
 };
 let unit = prefs.get("unit", "in");
 let uiLocked = false;
+const BIG_MP = 150;          // por encima de este área (megapíxeles) se pide confirmación
+let bigConfirmed = null;
 
 // ---------- utilidades de UI (compatibles con UXP: sin toggleAttribute ni classList.toggle(x, bool)) ----------
 const setClass = (el, cls, on) => (on ? el.classList.add(cls) : el.classList.remove(cls));
@@ -79,12 +82,16 @@ function lock(msg) {
 function unlock() {
   if (!uiLocked) return;
   uiLocked = false;
+  state.maskFresh = false;             // el documento pudo cambiar mientras estaba bloqueado
   setHidden($("lockBanner"), true);
   setClass($("step2"), "locked", false);
   setDisabled($("btnApply"), false);
+  if (held.size) { const kinds = [...held]; held.clear(); touch(...kinds); }
 }
 
 function resetToIdle() {
+  held.clear();
+  flushLater.cancel();
   resetState();
   unlock();
   showStep();
@@ -131,11 +138,23 @@ function targetSize() {
 // ---------- tiempo real: cola de cambios pendientes ----------
 // Cada control marca qué cambió; un único bucle aplica el último estado sin perder tipos de cambio.
 const dirty = new Set();
+const held = new Set();       // cambios que no pudieron aplicarse (documento equivocado): se reintentan al desbloquear
 let pumping = false;
+let applying = false;
+let eventsApi = null;
+
+// La máscara completa es lo más caro: durante un gesto solo se actualiza la vista en vivo y la máscara
+// se recalcula tras 300 ms sin cambios (o de inmediato con "flushMask" en controles discretos).
+const MASK_DELAY = 300;
+const flushLater = debounce(() => touch("flushMask"), MASK_DELAY);
+const MASK_AFFECTING = new Set(["ko", "levels", "shadow", "ht", "htType", "mask", "sens", "dots"]);
 
 function touch(...kinds) {
-  if (state.phase !== "ACTIVE" || uiLocked) return;
+  if (state.phase !== "ACTIVE" || applying) return;
+  if (uiLocked) { kinds.forEach(k => held.add(k)); return; }
   kinds.forEach(k => dirty.add(k));
+  if (kinds.some(k => MASK_AFFECTING.has(k)) && !kinds.includes("flushMask")) flushLater();
+  else if (kinds.includes("flushMask")) flushLater.cancel();
   pump();
 }
 
@@ -148,16 +167,23 @@ async function pump() {
       const kinds = new Set(dirty);
       dirty.clear();
       try { await live.sync(S, kinds); }
-      catch (e) { dirty.clear(); await fail(e); }
+      catch (e) {
+        // Si el documento no era el correcto, el cambio se conserva y se reaplica al volver
+        if (e && (e.message === "WRONG_DOC" || e.message === "MISSING_LAYERS")) kinds.forEach(k => held.add(k));
+        dirty.forEach(k => held.add(k));
+        dirty.clear();
+        await fail(e);
+      }
     }
   } finally {
     pumping = false;
     setHidden($("busy"), true);
+    if (eventsApi) eventsApi.check();     // eventos ignorados mientras se trabajaba
   }
 }
 
 // ---------- sincronización ajustes -> UI ----------
-let sIn, sOut, sShadow, sLpi, sAngle;
+let sIn, sOut, sShadow, sSens, sLpi, sAngle;
 
 function setSeg(id, attr, value) {
   $$(`#${id} .seg-btn`).forEach(b => setClass(b, "active", b.dataset[attr] === value));
@@ -165,6 +191,11 @@ function setSeg(id, attr, value) {
 
 function updateLpiLabel() {
   $("lblLpi").textContent = unit === "in" ? "(líneas/pulgada)" : `(LPI · ${lpiToLpc(S.lpi).toFixed(1)} LPC)`;
+  // Con celdas de tamaño no entero el motivo se remuestrea y los puntos salen irregulares (moiré)
+  const cell = RES / S.lpi;
+  const whole = Math.abs(cell - Math.round(cell)) < 0.05;
+  $("lblCell").textContent = `Celda: ${cell.toFixed(2)} px` + (whole ? " · exacta" : " · no entera");
+  setDisabled($("btnCell"), whole);
 }
 
 function syncHalftone() {
@@ -185,6 +216,9 @@ function syncTones() {
   sIn.set({ black: S.black, gamma: S.gamma, white: S.white });
   sOut.set({ outBlack: S.outBlack, outWhite: S.outWhite });
   sShadow.set({ shadow: S.shadow });
+  $("inSens").value = S.colorSens;
+  $("inDotMin").value = S.dotMin; $("inDotMax").value = S.dotMax;
+  sSens.set({ colorSens: S.colorSens });
 }
 
 function syncColors() {
@@ -226,7 +260,7 @@ async function onSwatch(key) {
   S[key] = c;
   if (S.linked) { S.knockoutColor = { ...c }; S.shirt = { ...c }; }
   syncColors();
-  touch(key === "shirt" && !S.linked ? "shirt" : "ko", "shirt");
+  touch(key === "shirt" && !S.linked ? "shirt" : "ko", "shirt", "flushMask");
 }
 
 // ---------- presets ----------
@@ -276,6 +310,11 @@ async function onRun() {
   if (Math.max(widthPx, heightPx) > 20000) {
     return message(`Tamaño muy grande (${widthPx}×${heightPx} px). Máximo recomendado: 20 000 px por lado.`, "warn");
   }
+  const mp = (widthPx * heightPx) / 1e6;
+  if (mp > BIG_MP && bigConfirmed !== `${widthPx}x${heightPx}`) {
+    bigConfirmed = `${widthPx}x${heightPx}`;
+    return message(`Documento de ${Math.round(mp)} MP: tardará y usará mucha memoria (calcula ~${Math.round(mp * 20 / 1000 * 10) / 10} GB). Pulsa Preparar de nuevo para continuar.`, "warn");
+  }
   message("");
   setDisabled($("btnRun"), true);
   try {
@@ -297,6 +336,8 @@ async function onRun() {
 async function onApply() {
   message("");
   setDisabled($("btnApply"), true);
+  applying = true;
+  flushLater.cancel();
   try {
     while (pumping) await new Promise(r => setTimeout(r, 50));   // terminar ajustes pendientes
     await pipeline.applyPrep(S);
@@ -305,18 +346,61 @@ async function onApply() {
   } catch (e) {
     await fail(e);
   } finally {
+    applying = false;
     setDisabled($("btnApply"), false);
+    if (eventsApi) eventsApi.check();
   }
 }
 
 async function onCancel() {
   dirty.clear();
+  held.clear();
+  flushLater.cancel();
   try { await pipeline.cancelPrep(); } catch (e) { console.log(e); }
   resetToIdle();
 }
 
+// ---------- panel de depuración de rendimiento ----------
+function perfEnv() {
+  const env = [];
+  const safe = (fn, d = "?") => { try { const v = fn(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+  env.push(`Open-DTF ${safe(() => require("uxp").versions.plugin)} · Photoshop ${safe(() => app.version)} · UXP ${safe(() => require("uxp").versions.uxp)}`);
+  const doc = currentDoc();
+  if (doc) {
+    const w = dimPx(doc.width), h = dimPx(doc.height);
+    env.push(`Documento: ${w}×${h} px (${(w * h / 1e6).toFixed(1)} MP) · ${safe(() => doc.mode)} · ${safe(() => doc.bitsPerChannel)} · ${safe(() => doc.layers.length)} capas`);
+  }
+  env.push(`Ajustes: ${S.htType} ${S.lpi} LPI ${S.angle}° · halftone ${S.halftone} · knockout ${S.knockout} · sombras ${S.shadow} · sens. color ${S.colorSens} · punto ${S.dotMin}-${S.dotMax} % · limpieza ${S.cleanup} · trama nativa ${S.nativeFinal}`);
+  return env;
+}
+
+function renderPerf() {
+  if (!$("perfBlock") || $("perfBlock").classList.contains("hidden")) return;
+  $("perfOut").value = perf.report(perfEnv());
+}
+
+function setPerfVisible(on) {
+  setHidden($("perfBlock"), !on);
+  prefs.set("debugPerf", on ? "1" : "0");
+  renderPerf();
+}
+
 // ---------- cableado ----------
 function bindUI() {
+  // Panel de depuración: 5 pulsaciones seguidas sobre el nombre lo muestran u ocultan
+  let taps = 0, tapTimer = null;
+  document.querySelector(".wordmark").addEventListener("click", () => {
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => { taps = 0; }, 1500);
+    if (++taps >= 5) { taps = 0; setPerfVisible($("perfBlock").classList.contains("hidden")); }
+  });
+  $("btnPerfRefresh").addEventListener("click", renderPerf);
+  $("btnPerfClear").addEventListener("click", () => { perf.clear(); renderPerf(); });
+  $("btnPerfHide").addEventListener("click", () => setPerfVisible(false));
+  perf.onUpdate(renderPerf);
+  setHidden($("perfBlock"), prefs.get("debugPerf", "0") !== "1");
+  renderPerf();
+
   // Tamaño
   $("btnUnit").addEventListener("change", () => {
     unit = ["in", "cm", "mm"][pickerIndex($("btnUnit"))];
@@ -332,19 +416,24 @@ function bindUI() {
   $("chkHalftone").addEventListener("change", () => {
     S.halftone = $("chkHalftone").checked;
     setHidden($("htBody"), !S.halftone);
-    touch("mask");
+    touch("mask", "flushMask");
   });
   $$("#segHtType .seg-btn").forEach(b => b.addEventListener("click", () => {
     if (S.htType === b.dataset.value) return;
     S.htType = b.dataset.value;
     setSeg("segHtType", "value", S.htType);
-    touch("htType");
+    touch("htType", "flushMask");
   }));
   sLpi = sliders.createValueSlider($("sldLpi"), "lpi", { min: LPI.min, max: LPI.max, stepBy: 1 }, v => {
     S.lpi = v.lpi; $("inLpi").value = v.lpi; updateLpiLabel(); touch("ht");
   });
   sAngle = sliders.createValueSlider($("sldAngle"), "angle", { min: ANGLE.min, max: ANGLE.max, stepBy: 0.5 }, v => {
     S.angle = v.angle; $("inAngle").value = v.angle; touch("ht");
+  });
+  $("btnCell").addEventListener("click", () => {
+    S.lpi = clamp(wholeCellLpi(S.lpi), 5, 234);
+    syncHalftone();
+    touch("ht");
   });
   bindNumber($("inLpi"), v => {
     if (!Number.isFinite(v)) return syncHalftone();
@@ -356,7 +445,7 @@ function bindUI() {
   }, { step: 0.5, decimals: 1, liveTyping: true });
 
   // Knockout y colores
-  $("chkKnockout").addEventListener("change", () => { S.knockout = $("chkKnockout").checked; touch("mask"); });
+  $("chkKnockout").addEventListener("change", () => { S.knockout = $("chkKnockout").checked; touch("mask", "flushMask"); });
   $("chkLinked").addEventListener("change", () => {
     S.linked = $("chkLinked").checked;
     if (S.linked) S.shirt = { ...S.knockoutColor };
@@ -377,7 +466,22 @@ function bindUI() {
     touch("levels");
   });
   sShadow = sliders.createValueSlider($("sldShadow"), "shadow", { min: 0, max: 100 }, v => {
-    S.shadow = v.shadow; $("inShadow").value = v.shadow; touch("shadow");
+    S.shadow = v.shadow; $("inShadow").value = v.shadow;      // el realce es caro: se aplica al soltar
+  }, () => touch("shadow", "flushMask"));
+  sSens = sliders.createValueSlider($("sldSens"), "colorSens", { min: 0, max: 100 }, v => {
+    S.colorSens = v.colorSens; $("inSens").value = v.colorSens; touch("sens");
+  });
+  bindNumber($("inSens"), v => {
+    if (Number.isFinite(v)) { S.colorSens = clamp(Math.round(v), 0, 100); touch("sens"); }
+    syncTones();
+  });
+  bindNumber($("inDotMin"), v => {
+    if (Number.isFinite(v)) { S.dotMin = clamp(Math.round(v), 0, 40); touch("dots"); }
+    syncTones();
+  });
+  bindNumber($("inDotMax"), v => {
+    if (Number.isFinite(v)) { S.dotMax = clamp(Math.round(v), 60, 100); touch("dots"); }
+    syncTones();
   });
   const levelField = (id, fn, opts) => bindNumber($(id), v => {
     if (Number.isFinite(v)) { fn(v); touch("levels"); }
@@ -395,9 +499,10 @@ function bindUI() {
 
   $("btnDefaults").addEventListener("click", () => {
     Object.assign(S, { black: DEFAULTS.black, gamma: DEFAULTS.gamma, white: DEFAULTS.white,
-                       outBlack: DEFAULTS.outBlack, outWhite: DEFAULTS.outWhite, shadow: DEFAULTS.shadow });
+                       outBlack: DEFAULTS.outBlack, outWhite: DEFAULTS.outWhite, shadow: DEFAULTS.shadow,
+                       colorSens: DEFAULTS.colorSens, dotMin: DEFAULTS.dotMin, dotMax: DEFAULTS.dotMax });
     syncTones();
-    touch("levels", "shadow");
+    touch("levels", "shadow", "sens", "dots", "flushMask");
   });
 
   // Vista y acabado
@@ -455,12 +560,13 @@ async function main() {
   });
   await step("sync", () => { showStep(); syncUI(); });
   await step("tamaño", () => updateCurrentPrintSize(true));
-  await step("eventos", () => events.init({
+  await step("eventos", () => { eventsApi = events.init({
+    isBusy: () => pumping || applying,
     onIdleChange: () => updateCurrentPrintSize(),
     onWorkClosed: () => { message("El documento de trabajo se cerró.", "warn"); resetToIdle(); },
     onLock: lock,
     onUnlock: unlock
-  }));
+  }); });
 }
 
 // Cualquier error no controlado se muestra en el panel (facilita el diagnóstico en Photoshop)

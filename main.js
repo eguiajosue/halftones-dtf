@@ -18,17 +18,56 @@
     defs[id](m, m.exports, function (r) { return r.charAt(0) === "." ? load(norm(id, r)) : nativeRequire(r); });
     return m.exports;
   }
+defs["src/halftone.js"] = function (module, exports, require) {
+// Cálculos puros del semitono (sin Photoshop): se prueban en Node.
+const { clamp } = require("./util");
+
+const EXACT_MIN = 3, EXACT_MAX = 48;      // tamaños de celda con tile propio (assets/tiles/ht_<tipo>_<n>.png)
+
+// Celda de la trama en px y tile que la reproduce a escala ~100 %. Fuera de rango se usa el tile más cercano.
+function tileFor(lpi, resolution) {
+  const cell = resolution / lpi;
+  const n = clamp(Math.round(cell), EXACT_MIN, EXACT_MAX);
+  return { cell, n, scale: Math.max(1, (100 * cell) / n) };
+}
+
+// Pesos de la capa Blanco y negro (porcentaje por color). Con sensibilidad 0 son los de Photoshop;
+// con 100 todos los colores saturados cuentan como tinta completa. Neutros: sin cambio.
+const BW_BASE = { red: 40, yellow: 60, green: 40, cyan: 60, blue: 20, magenta: 80 };
+function bwWeights(sens) {
+  const t = clamp(sens, 0, 100) / 100;
+  const out = {};
+  for (const k of Object.keys(BW_BASE)) out[k] = Math.round(BW_BASE[k] + (100 - BW_BASE[k]) * t);
+  return out;
+}
+
+// Puntos de la curva (entrada, salida) en 0..255: por debajo del punto mínimo no hay punto (0),
+// por encima del máximo es sólido (255), y entre ambos la respuesta es lineal.
+function dotCurve(minPct, maxPct) {
+  const lo = Math.round(clamp(minPct, 0, 100) * 255 / 100), hi = Math.round(clamp(maxPct, 0, 100) * 255 / 100);
+  const pts = [[0, 0]];
+  if (lo > 0) pts.push([lo - 1, 0], [lo, lo]);
+  if (hi < 255) pts.push([hi, hi], [hi + 1, 255]);
+  pts.push([255, 255]);
+  const seen = new Set();
+  return pts.filter(([x]) => (seen.has(x) ? false : (seen.add(x), true)));
+}
+
+module.exports = { EXACT_MIN, EXACT_MAX, tileFor, bwWeights, dotCurve };
+
+};
 defs["src/main.js"] = function (module, exports, require) {
 const { app } = require("photoshop");
 const { state, DEFAULTS, resetState } = require("./state");
 const { debounce, clamp } = require("./util");
-const { fromPx, toPx, lpiToLpc } = require("./ui/units");
+const { RES, fromPx, toPx, lpiToLpc, wholeCellLpi } = require("./ui/units");
 const { pickColor, toCss } = require("./ui/colorPicker");
 const sliders = require("./ui/levelsSlider");
 const presets = require("./presets");
 const pipeline = require("./ps/pipeline");
 const live = require("./ps/live");
 const events = require("./ps/events");
+const perf = require("./perf");
 
 const $ = id => document.getElementById(id);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -43,6 +82,8 @@ const prefs = {
 };
 let unit = prefs.get("unit", "in");
 let uiLocked = false;
+const BIG_MP = 150;          // por encima de este área (megapíxeles) se pide confirmación
+let bigConfirmed = null;
 
 // ---------- utilidades de UI (compatibles con UXP: sin toggleAttribute ni classList.toggle(x, bool)) ----------
 const setClass = (el, cls, on) => (on ? el.classList.add(cls) : el.classList.remove(cls));
@@ -100,12 +141,16 @@ function lock(msg) {
 function unlock() {
   if (!uiLocked) return;
   uiLocked = false;
+  state.maskFresh = false;             // el documento pudo cambiar mientras estaba bloqueado
   setHidden($("lockBanner"), true);
   setClass($("step2"), "locked", false);
   setDisabled($("btnApply"), false);
+  if (held.size) { const kinds = [...held]; held.clear(); touch(...kinds); }
 }
 
 function resetToIdle() {
+  held.clear();
+  flushLater.cancel();
   resetState();
   unlock();
   showStep();
@@ -152,11 +197,23 @@ function targetSize() {
 // ---------- tiempo real: cola de cambios pendientes ----------
 // Cada control marca qué cambió; un único bucle aplica el último estado sin perder tipos de cambio.
 const dirty = new Set();
+const held = new Set();       // cambios que no pudieron aplicarse (documento equivocado): se reintentan al desbloquear
 let pumping = false;
+let applying = false;
+let eventsApi = null;
+
+// La máscara completa es lo más caro: durante un gesto solo se actualiza la vista en vivo y la máscara
+// se recalcula tras 300 ms sin cambios (o de inmediato con "flushMask" en controles discretos).
+const MASK_DELAY = 300;
+const flushLater = debounce(() => touch("flushMask"), MASK_DELAY);
+const MASK_AFFECTING = new Set(["ko", "levels", "shadow", "ht", "htType", "mask", "sens", "dots"]);
 
 function touch(...kinds) {
-  if (state.phase !== "ACTIVE" || uiLocked) return;
+  if (state.phase !== "ACTIVE" || applying) return;
+  if (uiLocked) { kinds.forEach(k => held.add(k)); return; }
   kinds.forEach(k => dirty.add(k));
+  if (kinds.some(k => MASK_AFFECTING.has(k)) && !kinds.includes("flushMask")) flushLater();
+  else if (kinds.includes("flushMask")) flushLater.cancel();
   pump();
 }
 
@@ -169,16 +226,23 @@ async function pump() {
       const kinds = new Set(dirty);
       dirty.clear();
       try { await live.sync(S, kinds); }
-      catch (e) { dirty.clear(); await fail(e); }
+      catch (e) {
+        // Si el documento no era el correcto, el cambio se conserva y se reaplica al volver
+        if (e && (e.message === "WRONG_DOC" || e.message === "MISSING_LAYERS")) kinds.forEach(k => held.add(k));
+        dirty.forEach(k => held.add(k));
+        dirty.clear();
+        await fail(e);
+      }
     }
   } finally {
     pumping = false;
     setHidden($("busy"), true);
+    if (eventsApi) eventsApi.check();     // eventos ignorados mientras se trabajaba
   }
 }
 
 // ---------- sincronización ajustes -> UI ----------
-let sIn, sOut, sShadow, sLpi, sAngle;
+let sIn, sOut, sShadow, sSens, sLpi, sAngle;
 
 function setSeg(id, attr, value) {
   $$(`#${id} .seg-btn`).forEach(b => setClass(b, "active", b.dataset[attr] === value));
@@ -186,6 +250,11 @@ function setSeg(id, attr, value) {
 
 function updateLpiLabel() {
   $("lblLpi").textContent = unit === "in" ? "(líneas/pulgada)" : `(LPI · ${lpiToLpc(S.lpi).toFixed(1)} LPC)`;
+  // Con celdas de tamaño no entero el motivo se remuestrea y los puntos salen irregulares (moiré)
+  const cell = RES / S.lpi;
+  const whole = Math.abs(cell - Math.round(cell)) < 0.05;
+  $("lblCell").textContent = `Celda: ${cell.toFixed(2)} px` + (whole ? " · exacta" : " · no entera");
+  setDisabled($("btnCell"), whole);
 }
 
 function syncHalftone() {
@@ -206,6 +275,9 @@ function syncTones() {
   sIn.set({ black: S.black, gamma: S.gamma, white: S.white });
   sOut.set({ outBlack: S.outBlack, outWhite: S.outWhite });
   sShadow.set({ shadow: S.shadow });
+  $("inSens").value = S.colorSens;
+  $("inDotMin").value = S.dotMin; $("inDotMax").value = S.dotMax;
+  sSens.set({ colorSens: S.colorSens });
 }
 
 function syncColors() {
@@ -247,7 +319,7 @@ async function onSwatch(key) {
   S[key] = c;
   if (S.linked) { S.knockoutColor = { ...c }; S.shirt = { ...c }; }
   syncColors();
-  touch(key === "shirt" && !S.linked ? "shirt" : "ko", "shirt");
+  touch(key === "shirt" && !S.linked ? "shirt" : "ko", "shirt", "flushMask");
 }
 
 // ---------- presets ----------
@@ -297,6 +369,11 @@ async function onRun() {
   if (Math.max(widthPx, heightPx) > 20000) {
     return message(`Tamaño muy grande (${widthPx}×${heightPx} px). Máximo recomendado: 20 000 px por lado.`, "warn");
   }
+  const mp = (widthPx * heightPx) / 1e6;
+  if (mp > BIG_MP && bigConfirmed !== `${widthPx}x${heightPx}`) {
+    bigConfirmed = `${widthPx}x${heightPx}`;
+    return message(`Documento de ${Math.round(mp)} MP: tardará y usará mucha memoria (calcula ~${Math.round(mp * 20 / 1000 * 10) / 10} GB). Pulsa Preparar de nuevo para continuar.`, "warn");
+  }
   message("");
   setDisabled($("btnRun"), true);
   try {
@@ -318,6 +395,8 @@ async function onRun() {
 async function onApply() {
   message("");
   setDisabled($("btnApply"), true);
+  applying = true;
+  flushLater.cancel();
   try {
     while (pumping) await new Promise(r => setTimeout(r, 50));   // terminar ajustes pendientes
     await pipeline.applyPrep(S);
@@ -326,18 +405,61 @@ async function onApply() {
   } catch (e) {
     await fail(e);
   } finally {
+    applying = false;
     setDisabled($("btnApply"), false);
+    if (eventsApi) eventsApi.check();
   }
 }
 
 async function onCancel() {
   dirty.clear();
+  held.clear();
+  flushLater.cancel();
   try { await pipeline.cancelPrep(); } catch (e) { console.log(e); }
   resetToIdle();
 }
 
+// ---------- panel de depuración de rendimiento ----------
+function perfEnv() {
+  const env = [];
+  const safe = (fn, d = "?") => { try { const v = fn(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+  env.push(`Open-DTF ${safe(() => require("uxp").versions.plugin)} · Photoshop ${safe(() => app.version)} · UXP ${safe(() => require("uxp").versions.uxp)}`);
+  const doc = currentDoc();
+  if (doc) {
+    const w = dimPx(doc.width), h = dimPx(doc.height);
+    env.push(`Documento: ${w}×${h} px (${(w * h / 1e6).toFixed(1)} MP) · ${safe(() => doc.mode)} · ${safe(() => doc.bitsPerChannel)} · ${safe(() => doc.layers.length)} capas`);
+  }
+  env.push(`Ajustes: ${S.htType} ${S.lpi} LPI ${S.angle}° · halftone ${S.halftone} · knockout ${S.knockout} · sombras ${S.shadow} · sens. color ${S.colorSens} · punto ${S.dotMin}-${S.dotMax} % · limpieza ${S.cleanup} · trama nativa ${S.nativeFinal}`);
+  return env;
+}
+
+function renderPerf() {
+  if (!$("perfBlock") || $("perfBlock").classList.contains("hidden")) return;
+  $("perfOut").value = perf.report(perfEnv());
+}
+
+function setPerfVisible(on) {
+  setHidden($("perfBlock"), !on);
+  prefs.set("debugPerf", on ? "1" : "0");
+  renderPerf();
+}
+
 // ---------- cableado ----------
 function bindUI() {
+  // Panel de depuración: 5 pulsaciones seguidas sobre el nombre lo muestran u ocultan
+  let taps = 0, tapTimer = null;
+  document.querySelector(".wordmark").addEventListener("click", () => {
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => { taps = 0; }, 1500);
+    if (++taps >= 5) { taps = 0; setPerfVisible($("perfBlock").classList.contains("hidden")); }
+  });
+  $("btnPerfRefresh").addEventListener("click", renderPerf);
+  $("btnPerfClear").addEventListener("click", () => { perf.clear(); renderPerf(); });
+  $("btnPerfHide").addEventListener("click", () => setPerfVisible(false));
+  perf.onUpdate(renderPerf);
+  setHidden($("perfBlock"), prefs.get("debugPerf", "0") !== "1");
+  renderPerf();
+
   // Tamaño
   $("btnUnit").addEventListener("change", () => {
     unit = ["in", "cm", "mm"][pickerIndex($("btnUnit"))];
@@ -353,19 +475,24 @@ function bindUI() {
   $("chkHalftone").addEventListener("change", () => {
     S.halftone = $("chkHalftone").checked;
     setHidden($("htBody"), !S.halftone);
-    touch("mask");
+    touch("mask", "flushMask");
   });
   $$("#segHtType .seg-btn").forEach(b => b.addEventListener("click", () => {
     if (S.htType === b.dataset.value) return;
     S.htType = b.dataset.value;
     setSeg("segHtType", "value", S.htType);
-    touch("htType");
+    touch("htType", "flushMask");
   }));
   sLpi = sliders.createValueSlider($("sldLpi"), "lpi", { min: LPI.min, max: LPI.max, stepBy: 1 }, v => {
     S.lpi = v.lpi; $("inLpi").value = v.lpi; updateLpiLabel(); touch("ht");
   });
   sAngle = sliders.createValueSlider($("sldAngle"), "angle", { min: ANGLE.min, max: ANGLE.max, stepBy: 0.5 }, v => {
     S.angle = v.angle; $("inAngle").value = v.angle; touch("ht");
+  });
+  $("btnCell").addEventListener("click", () => {
+    S.lpi = clamp(wholeCellLpi(S.lpi), 5, 234);
+    syncHalftone();
+    touch("ht");
   });
   bindNumber($("inLpi"), v => {
     if (!Number.isFinite(v)) return syncHalftone();
@@ -377,7 +504,7 @@ function bindUI() {
   }, { step: 0.5, decimals: 1, liveTyping: true });
 
   // Knockout y colores
-  $("chkKnockout").addEventListener("change", () => { S.knockout = $("chkKnockout").checked; touch("mask"); });
+  $("chkKnockout").addEventListener("change", () => { S.knockout = $("chkKnockout").checked; touch("mask", "flushMask"); });
   $("chkLinked").addEventListener("change", () => {
     S.linked = $("chkLinked").checked;
     if (S.linked) S.shirt = { ...S.knockoutColor };
@@ -398,7 +525,22 @@ function bindUI() {
     touch("levels");
   });
   sShadow = sliders.createValueSlider($("sldShadow"), "shadow", { min: 0, max: 100 }, v => {
-    S.shadow = v.shadow; $("inShadow").value = v.shadow; touch("shadow");
+    S.shadow = v.shadow; $("inShadow").value = v.shadow;      // el realce es caro: se aplica al soltar
+  }, () => touch("shadow", "flushMask"));
+  sSens = sliders.createValueSlider($("sldSens"), "colorSens", { min: 0, max: 100 }, v => {
+    S.colorSens = v.colorSens; $("inSens").value = v.colorSens; touch("sens");
+  });
+  bindNumber($("inSens"), v => {
+    if (Number.isFinite(v)) { S.colorSens = clamp(Math.round(v), 0, 100); touch("sens"); }
+    syncTones();
+  });
+  bindNumber($("inDotMin"), v => {
+    if (Number.isFinite(v)) { S.dotMin = clamp(Math.round(v), 0, 40); touch("dots"); }
+    syncTones();
+  });
+  bindNumber($("inDotMax"), v => {
+    if (Number.isFinite(v)) { S.dotMax = clamp(Math.round(v), 60, 100); touch("dots"); }
+    syncTones();
   });
   const levelField = (id, fn, opts) => bindNumber($(id), v => {
     if (Number.isFinite(v)) { fn(v); touch("levels"); }
@@ -416,9 +558,10 @@ function bindUI() {
 
   $("btnDefaults").addEventListener("click", () => {
     Object.assign(S, { black: DEFAULTS.black, gamma: DEFAULTS.gamma, white: DEFAULTS.white,
-                       outBlack: DEFAULTS.outBlack, outWhite: DEFAULTS.outWhite, shadow: DEFAULTS.shadow });
+                       outBlack: DEFAULTS.outBlack, outWhite: DEFAULTS.outWhite, shadow: DEFAULTS.shadow,
+                       colorSens: DEFAULTS.colorSens, dotMin: DEFAULTS.dotMin, dotMax: DEFAULTS.dotMax });
     syncTones();
-    touch("levels", "shadow");
+    touch("levels", "shadow", "sens", "dots", "flushMask");
   });
 
   // Vista y acabado
@@ -476,12 +619,13 @@ async function main() {
   });
   await step("sync", () => { showStep(); syncUI(); });
   await step("tamaño", () => updateCurrentPrintSize(true));
-  await step("eventos", () => events.init({
+  await step("eventos", () => { eventsApi = events.init({
+    isBusy: () => pumping || applying,
     onIdleChange: () => updateCurrentPrintSize(),
     onWorkClosed: () => { message("El documento de trabajo se cerró.", "warn"); resetToIdle(); },
     onLock: lock,
     onUnlock: unlock
-  }));
+  }); });
 }
 
 // Cualquier error no controlado se muestra en el panel (facilita el diagnóstico en Photoshop)
@@ -489,6 +633,85 @@ window.addEventListener("error", e => status(`Error: ${e.message}`));
 window.addEventListener("unhandledrejection", e => status(`Error: ${e.reason && e.reason.message ? e.reason.message : e.reason}`));
 
 main().catch(e => { console.log("Halftones DTF init:", e); status(e.message); });
+
+};
+defs["src/perf.js"] = function (module, exports, require) {
+// Medición de rendimiento: tiempo total de cada operación del plugin, nº de batchPlay y los más lentos.
+// Siempre registra (coste mínimo); el panel de depuración solo lo muestra.
+const MAX_SAMPLES = 50;
+
+const samples = {};          // etiqueta -> [{ ms, calls, bpMs }]
+let current = null;
+let last = null;
+let listener = null;
+
+const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
+function percentile(values, p) {
+  if (!values.length) return 0;
+  const a = [...values].sort((x, y) => x - y);
+  return a[Math.min(a.length - 1, Math.max(0, Math.ceil((p / 100) * a.length) - 1))];
+}
+
+// Llamado desde bp(): una entrada por batchPlay
+function noteBatch(names, ms) {
+  if (!current) return;
+  current.calls++;
+  current.bpMs += ms;
+  current.slow.push({ name: names, ms });
+  if (current.slow.length > 20) { current.slow.sort((a, b) => b.ms - a.ms); current.slow.length = 5; }
+}
+
+// Si ya hay una operación en curso, la anidada se atribuye a la exterior.
+async function track(label, fn) {
+  if (current) return fn();
+  const op = { label, t0: now(), calls: 0, bpMs: 0, slow: [] };
+  current = op;
+  try {
+    return await fn();
+  } finally {
+    current = null;
+    op.ms = now() - op.t0;
+    op.slow.sort((a, b) => b.ms - a.ms);
+    op.slow.length = Math.min(op.slow.length, 3);
+    const list = samples[label] || (samples[label] = []);
+    list.push({ ms: op.ms, calls: op.calls, bpMs: op.bpMs });
+    if (list.length > MAX_SAMPLES) list.shift();
+    last = op;
+    if (listener) { try { listener(); } catch (e) { /* UI */ } }
+  }
+}
+
+function stats() {
+  return Object.keys(samples).sort().map(label => {
+    const l = samples[label];
+    const ms = l.map(x => x.ms);
+    return { label, n: l.length, p50: percentile(ms, 50), p95: percentile(ms, 95), max: Math.max(...ms),
+             calls: Math.round(l.reduce((a, x) => a + x.calls, 0) / l.length) };
+  });
+}
+
+const fmt = ms => (ms >= 1000 ? (ms / 1000).toFixed(2) + " s" : Math.round(ms) + " ms");
+
+// Texto listo para pegar en una incidencia. env: líneas de contexto (documento, versión…)
+function report(env = []) {
+  const out = [...env, ""];
+  const s = stats();
+  if (!s.length) out.push("Sin mediciones todavía.");
+  for (const r of s) {
+    out.push(`${r.label}: n=${r.n} · p50 ${fmt(r.p50)} · p95 ${fmt(r.p95)} · máx ${fmt(r.max)} · ~${r.calls} batchPlay`);
+  }
+  if (last) {
+    out.push("", `Última: ${last.label} ${fmt(last.ms)} (${last.calls} batchPlay, ${fmt(last.bpMs)} en Photoshop)`);
+    last.slow.forEach(x => out.push(`  · ${fmt(x.ms)}  ${x.name}`));
+  }
+  return out.join("\n");
+}
+
+function clear() { for (const k of Object.keys(samples)) delete samples[k]; last = null; }
+function onUpdate(fn) { listener = fn; }
+
+module.exports = { track, noteBatch, stats, report, clear, onUpdate, percentile, fmt };
 
 };
 defs["src/presets.js"] = function (module, exports, require) {
@@ -555,6 +778,7 @@ module.exports = { list, load, save, remove };
 };
 defs["src/ps/bp.js"] = function (module, exports, require) {
 const { action, core, app } = require("photoshop");
+const perf = require("../perf");
 
 const px  = v => ({ _unit: "pixelsUnit",  _value: v });
 const pct = v => ({ _unit: "percentUnit", _value: v });
@@ -572,10 +796,13 @@ const channel = v => ({ _ref: "channel", _enum: "channel", _value: v });
 async function bp(descs) {
   const list = Array.isArray(descs) ? descs : [descs];
   let res;
+  const t0 = Date.now();
   try {
     res = await action.batchPlay(list, { modalBehavior: "execute" });
   } catch (e) {
     throw new Error(`${list.map(d => d._obj).join(",")}: ${e.message}`);
+  } finally {
+    perf.noteBatch(list.map(d => d._obj).join(","), Date.now() - t0);
   }
   res.forEach((r, i) => {
     if (r && r._obj === "error") throw new Error(`${list[i]._obj}: ${r.message}`);
@@ -601,9 +828,11 @@ async function modal(name, fn, { history = false } = {}) {
 const selectLayer = id => bp({ _obj: "select", _target: [layerById(id)], makeVisible: false });
 const setVisible = (id, on) => bp({ _obj: on ? "show" : "hide", null: [layerById(id)] });
 
-async function lastLayerId() {
-  const r = await bp({ _obj: "get", _target: [{ _property: "layerID" }, targetLayer] });
-  return r[0].layerID;
+// Ejecuta descriptores y devuelve el ID de la capa activa al final, en un solo viaje al host
+async function bpThenId(descs) {
+  const list = Array.isArray(descs) ? descs : [descs];
+  const r = await bp([...list, { _obj: "get", _target: [{ _property: "layerID" }, targetLayer] }]);
+  return r[r.length - 1].layerID;
 }
 
 function findLayer(container, id) {
@@ -621,21 +850,24 @@ const baseName = title => String(title).replace(/\.[^./\\]+$/, "");
 
 module.exports = {
   px, pct, deg, rgb, validId, layerById, docById, targetLayer, channel,
-  bp, modal, selectLayer, setVisible, lastLayerId, findLayer, baseName
+  bp, bpThenId, modal, selectLayer, setVisible, findLayer, baseName
 };
 
 };
 defs["src/ps/events.js"] = function (module, exports, require) {
 const { action, app } = require("photoshop");
 const { state } = require("../state");
+const { debounce } = require("../util");
 
-const EVENTS = ["select", "close", "open", "imageSize", "canvasSize", "historyStateChanged"];
+// historyStateChanged solo importa con el trabajo en curso (deshacer/borrar capas); en reposo solo el tamaño
+const IDLE_EVENTS = ["select", "close", "open", "imageSize", "canvasSize"];
+const EVENTS = [...IDLE_EVENTS, "historyStateChanged"];
 
-// handlers: { onIdleChange(), onWorkClosed(), onLock(msg), onUnlock() }
+// handlers: { isBusy(), onIdleChange(), onWorkClosed(), onLock(msg), onUnlock() }
 function init(handlers) {
-  action.addNotificationListener(EVENTS.map(e => ({ event: e })), (event) => {
+  function evaluate() {
     try {
-      if (state.phase === "RUNNING") return;
+      if (state.phase === "RUNNING" || handlers.isBusy()) return;
       if (state.phase === "ACTIVE") {
         const stillOpen = app.documents.some(d => d.id === state.workDocId);
         if (!stillOpen) return handlers.onWorkClosed();
@@ -647,9 +879,19 @@ function init(handlers) {
         handlers.onIdleChange();
       }
     } catch (e) {
-      console.log("events:", event, e);
+      console.log("events:", e);
     }
+  }
+
+  // Las acciones del propio plugin generan decenas de eventos: se ignoran mientras trabaja
+  // y el resto se agrupa. Al terminar, main.js llama a check() para no perder ninguno.
+  const check = debounce(evaluate, 150);
+  action.addNotificationListener(EVENTS.map(e => ({ event: e })), (event, descriptor) => {
+    if (handlers.isBusy() || state.phase === "RUNNING") return;
+    if (state.phase !== "ACTIVE" && event === "historyStateChanged") return;
+    check();
   });
+  return { check };
 }
 
 module.exports = { init };
@@ -660,30 +902,64 @@ defs["src/ps/layers.js"] = function (module, exports, require) {
 const { app } = require("photoshop");
 const { storage } = require("uxp");
 const { TILE_PX, state } = require("../state");
+const { tileFor, bwWeights, dotCurve } = require("../halftone");
 const {
-  bp, px, pct, deg, rgb, layerById, targetLayer, selectLayer, lastLayerId
+  bp, bpThenId, modal, px, pct, deg, rgb, layerById, targetLayer, selectLayer
 } = require("./bp");
 
 async function makeSolid(name, color, mode = "normal") {
-  await bp({ _obj: "make", _target: [{ _ref: "contentLayer" }],
+  return bpThenId({ _obj: "make", _target: [{ _ref: "contentLayer" }],
     using: { _obj: "contentLayer", name, mode: { _enum: "blendMode", _value: mode },
              type: { _obj: "solidColorLayer", color: rgb(color) } } });
-  return lastLayerId();
 }
 
-async function makeHueSatDesat(name) {
-  await bp({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
-    using: { _obj: "adjustmentLayer", name,
-      type: { _obj: "hueSaturation", presetKind: { _enum: "presetKindType", _value: "presetKindCustom" },
-              colorize: false,
-              adjustment: [{ _obj: "hueSatAdjustmentV2", hue: 0, saturation: -100, lightness: 0 }] } } });
-  return lastLayerId();
+const CUSTOM = { _enum: "presetKindType", _value: "presetKindCustom" };
+
+function bwType(sens) {
+  const w = bwWeights(sens);
+  return { _obj: "blackAndWhite", presetKind: CUSTOM, useTint: false,
+           red: w.red, yellow: w.yellow, grain: w.green, cyan: w.cyan, blue: w.blue, magenta: w.magenta };   // 🔍 "grain" = verde
 }
+
+// Mapa de tinta en grises. Blanco y negro con pesos altos hace que los colores saturados reciban tinta
+// completa (con Tono/Saturación −100 un rojo puro quedaba en ~50 %). Si Photoshop no lo acepta, se usa
+// Tono/Saturación como antes.
+async function makeMapDesat(name, sens) {
+  try {
+    const id = await bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+      using: { _obj: "adjustmentLayer", name, type: bwType(sens) } });
+    return { id, kind: "bw" };
+  } catch (e) {
+    console.log("Blanco y negro no disponible, se usa Tono/Saturación:", e);
+    const id = await bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+      using: { _obj: "adjustmentLayer", name,
+        type: { _obj: "hueSaturation", presetKind: CUSTOM, colorize: false,
+                adjustment: [{ _obj: "hueSatAdjustmentV2", hue: 0, saturation: -100, lightness: 0 }] } } });
+    return { id, kind: "hs" };
+  }
+}
+
+async function setMapDesat(id, sens) {
+  if (state.desatKind !== "bw") return;
+  await bp({ _obj: "set", _target: [{ _ref: "adjustmentLayer", _id: id }], to: bwType(sens) });
+}
+
+// Punto mínimo / máximo como curva con escalones
+const curveType = (min, max) => ({ _obj: "curves", presetKind: CUSTOM,
+  adjustment: [{ _obj: "curvesAdjustment", channel: { _ref: "channel", _enum: "channel", _value: "composite" },
+    curve: dotCurve(min, max).map(([x, y]) => ({ _obj: "paint", horizontal: x, vertical: y })) }] });      // 🔍
+
+async function makeCurves(name, min, max) {
+  return bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+    using: { _obj: "adjustmentLayer", name, type: curveType(min, max) } });
+}
+
+const setCurves = (id, min, max) => bp({ _obj: "set", _target: [{ _ref: "adjustmentLayer", _id: id }],
+  to: curveType(min, max) });
 
 async function makeThreshold(name, level = 128) {
-  await bp({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+  return bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
     using: { _obj: "adjustmentLayer", name, type: { _obj: "thresholdClassEvent", level } } });
-  return lastLayerId();
 }
 
 async function setLevels(id, { black, gamma, white, outBlack, outWhite }) {
@@ -695,10 +971,9 @@ async function setLevels(id, { black, gamma, white, outBlack, outWhite }) {
 }
 
 async function makeLevels(name, s) {
-  await bp({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+  const id = await bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
     using: { _obj: "adjustmentLayer", name, type: { _obj: "levels",
       presetKind: { _enum: "presetKindType", _value: "presetKindDefault" } } } });
-  const id = await lastLayerId();
   await setLevels(id, s);
   return id;
 }
@@ -708,59 +983,111 @@ const setSolid = (id, c) => bp({ _obj: "set", _target: [{ _ref: "contentLayer", 
 
 // ---- Semitono -------------------------------------------------------------
 
-const definedPatterns = new Map();   // nombre -> ID (o null) definido en esta sesión
+const definedPatterns = new Map();   // nombre -> { name, id, tilePx } ya disponible en esta sesión
+const ownPatterns = new Set();       // motivos que definió este plugin (se borran de la biblioteca al terminar)
 
-// Define (una vez por sesión) el motivo de umbral a partir del PNG propio del plugin.
-async function ensurePattern(type) {
-  const name = `HT ${type}`;
-  if (definedPatterns.has(name)) return { name, id: definedPatterns.get(name) };
-
-  const folder = await storage.localFileSystem.getPluginFolder();
-  let entry;
+// Nombres de motivos que ya existen en la biblioteca del usuario (persisten entre sesiones).
+async function libraryPatternNames() {
   try {
-    entry = await folder.getEntry(`assets/tiles/ht_${type.toLowerCase()}.png`);
-  } catch (e) {
-    throw new Error(`No se encuentra el recurso de semitono (${type}). Reinstala el plugin.`);
-  }
+    const r = await bp({ _obj: "get", _target: [{ _property: "presetManager" }, { _ref: "application" }] });   // 🔍
+    const names = new Set();
+    for (const m of (r[0] && r[0].presetManager) || []) {
+      if (Array.isArray(m.name)) m.name.forEach(n => names.add(n));
+    }
+    return names;
+  } catch (e) { return new Set(); }
+}
+
+async function tileEntry(file) {
+  const folder = await storage.localFileSystem.getPluginFolder();
+  try { return await folder.getEntry(`assets/tiles/${file}`); } catch (e) { return null; }
+}
+
+// Abre el PNG, lo define como motivo y devuelve su ID (o null).
+async function definePattern(entry, name) {
   const work = app.activeDocument;
   const tile = await app.open(entry);
-  let id = null;
   try {
     await bp({ _obj: "set", _target: [{ _ref: "channel", _property: "selection" }],
                to: { _enum: "ordinal", _value: "allEnum" } });
     const res = await bp({ _obj: "make", _target: [{ _ref: "pattern" }],
       using: { _ref: "property", _property: "selection" }, name });          // 🔍 Definir motivo
-    id = (res && res[0] && res[0].ID) || null;
+    ownPatterns.add(name);
+    return (res && res[0] && res[0].ID) || null;
   } finally {
     await tile.closeWithoutSaving();
     app.activeDocument = work;
   }
-  definedPatterns.set(name, id);
-  return { name, id };
 }
 
-function patternScale(lpi, resolution) {
-  return Math.max(1, 100 * (resolution / lpi) / TILE_PX);
+// Motivo de la celda de n px (ht_<tipo>_<n>.png, a escala ~100 %). Si el archivo no existe se usa el
+// tile único de 128 px escalado, como en la 1.4. Se reutiliza el de la biblioteca si ya está definido.
+async function ensurePattern(type, n) {
+  const exact = `HT ${type} ${n}`;
+  if (definedPatterns.has(exact)) return definedPatterns.get(exact);
+  const legacy = `HT ${type}`;
+  if (definedPatterns.has(legacy) && !(await tileEntry(`ht_${type.toLowerCase()}_${n}.png`))) return definedPatterns.get(legacy);
+
+  const lib = await libraryPatternNames();
+  const remember = (name, id, tilePx) => { const p = { name, id, tilePx }; definedPatterns.set(name, p); return p; };
+  if (lib.has(exact)) return remember(exact, null, n);
+
+  const entry = await tileEntry(`ht_${type.toLowerCase()}_${n}.png`);
+  if (entry) return remember(exact, await definePattern(entry, exact), n);
+
+  if (lib.has(legacy)) return remember(legacy, null, TILE_PX);
+  const old = await tileEntry(`ht_${type.toLowerCase()}.png`);
+  if (!old) throw new Error(`No se encuentra el recurso de semitono (${type}). Reinstala el plugin.`);
+  return remember(legacy, await definePattern(old, legacy), TILE_PX);
+}
+
+// Escala del motivo: ~100 % con tile exacto; con el tile de 128 px, la de la 1.4
+function patternScale(lpi, resolution, tilePx) {
+  if (tilePx === TILE_PX) return Math.max(1, 100 * (resolution / lpi) / TILE_PX);
+  return tileFor(lpi, resolution).scale;
+}
+
+// ¿Hay que cambiar de motivo al variar el LPI? (otra celda entera => otro tile)
+function needsNewTile(lpi) {
+  const t = state.htTile;
+  if (!t.tilePx || t.tilePx === TILE_PX) return false;
+  return tileFor(lpi, app.activeDocument.resolution).n !== t.n;
 }
 
 // Crea la capa de relleno de motivo en modo Hard Mix (relleno 100 %).
 async function makeHalftoneLayer(type, lpi, angle) {
-  const { name, id } = await ensurePattern(type);
   const res = app.activeDocument.resolution;
-  const pattern = id ? { _obj: "pattern", name, ID: id } : { _obj: "pattern", name };
-  await bp({ _obj: "make", _target: [{ _ref: "contentLayer" }],
+  const p = await ensurePattern(type, tileFor(lpi, res).n);
+  const pattern = p.id ? { _obj: "pattern", name: p.name, ID: p.id } : { _obj: "pattern", name: p.name };
+  const layerId = await bpThenId({ _obj: "make", _target: [{ _ref: "contentLayer" }],
     using: { _obj: "contentLayer", name: "HT PATTERN",
-      type: { _obj: "patternLayer", pattern, scale: pct(patternScale(lpi, res)), angle: deg(angle) } } }); // 🔍
-  const layerId = await lastLayerId();
+      type: { _obj: "patternLayer", pattern, scale: pct(patternScale(lpi, res, p.tilePx)), angle: deg(angle) } } }); // 🔍
   await bp({ _obj: "set", _target: [layerById(layerId)],
     to: { _obj: "layer", mode: { _enum: "blendMode", _value: "hardMix" }, fillOpacity: pct(100) } });
+  state.htTile = { type, n: p.tilePx === TILE_PX ? 0 : p.tilePx, tilePx: p.tilePx };
   return layerId;
 }
 
 async function setHalftoneParams(id, lpi, angle) {
   const res = app.activeDocument.resolution;
   await bp({ _obj: "set", _target: [{ _ref: "contentLayer", _id: id }],
-    to: { _obj: "patternLayer", scale: pct(patternScale(lpi, res)), angle: deg(angle) } });   // 🔍
+    to: { _obj: "patternLayer", scale: pct(patternScale(lpi, res, state.htTile.tilePx)), angle: deg(angle) } });   // 🔍
+}
+
+// Al terminar la sesión de trabajo, quita de la biblioteca los motivos que definió el plugin
+// (las capas de relleno llevan su propia copia). Si falla no pasa nada: se reutilizarán por nombre.
+async function cleanupPatterns() {
+  if (!ownPatterns.size) return;
+  try {
+    await modal("Open-DTF: limpiar motivos", async () => {
+      for (const name of ownPatterns) {
+        try { await bp({ _obj: "delete", _target: [{ _ref: "pattern", _name: name }] }); }                      // 🔍
+        catch (e) { console.log("No se pudo borrar el motivo", name, e); }
+      }
+    });
+    for (const name of ownPatterns) definedPatterns.delete(name);
+    ownPatterns.clear();
+  } catch (e) { console.log("cleanupPatterns:", e); }
 }
 
 // ---- Realce de sombras (Sombras/Iluminaciones como filtro inteligente) ------
@@ -790,14 +1117,15 @@ async function setShadowBoost(amount) {
 }
 
 module.exports = {
-  makeSolid, makeHueSatDesat, makeThreshold, makeLevels, setLevels, setSolid,
-  makeHalftoneLayer, setHalftoneParams, setShadowBoost, applyShadowBoost
+  makeSolid, makeMapDesat, setMapDesat, makeCurves, setCurves, makeThreshold, makeLevels, setLevels, setSolid,
+  makeHalftoneLayer, setHalftoneParams, needsNewTile, cleanupPatterns, setShadowBoost
 };
 
 };
 defs["src/ps/live.js"] = function (module, exports, require) {
 const { app } = require("photoshop");
 const { state } = require("../state");
+const perf = require("../perf");
 const { modal, findLayer, selectLayer } = require("./bp");
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
@@ -807,8 +1135,15 @@ const { setPreviewMode } = require("./preview");
 function validateState() {
   const doc = app.activeDocument;
   if (!doc || doc.id !== state.workDocId) throw new Error("WRONG_DOC");
+  const present = new Set();
+  (function collect(container) {
+    for (const l of container.layers) {
+      present.add(l.id);
+      if (l.layers && l.layers.length) collect(l);
+    }
+  })(doc);
   for (const id of Object.values(state.layers)) {
-    if (!findLayer(doc, id)) throw new Error("MISSING_LAYERS");
+    if (!present.has(id)) throw new Error("MISSING_LAYERS");
   }
 }
 
@@ -824,26 +1159,38 @@ async function replaceHalftone(s) {
 }
 
 // Aplica en una sola operación modal (una entrada de historial) solo lo que cambió.
-// kinds: shirt, ko, levels, shadow, ht, htType, mask, preview
-const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask"];
+// kinds: shirt, ko, levels, sens, dots, shadow, ht, htType, mask, preview, flushMask
+const MASK_KINDS = ["ko", "levels", "shadow", "ht", "htType", "mask", "sens", "dots"];
 
 function sync(s, kinds) {
+  const label = "Vivo: " + [...kinds].filter(k => k !== "flushMask").sort().join("+") + (kinds.has("flushMask") ? " (máscara)" : "");
+  return perf.track(label, () => syncModal(s, kinds));
+}
+
+function syncModal(s, kinds) {
   return modal("Open-DTF: Ajuste en vivo", async () => {
     validateState();
     const L = state.layers;
     if (kinds.has("shirt")) await L_.setSolid(L.shirt, s.shirt);
     if (kinds.has("ko")) { await L_.setSolid(L.ko, s.knockoutColor); await L_.setSolid(L.mapBg, s.knockoutColor); }
     if (kinds.has("levels")) await L_.setLevels(L.levels, s);
+    if (kinds.has("sens")) await L_.setMapDesat(L.desat, s.colorSens);
+    if (kinds.has("dots") && L.curves) await L_.setCurves(L.curves, s.dotMin, s.dotMax);
     if (kinds.has("shadow")) await L_.setShadowBoost(s.shadow);
-    if (kinds.has("htType")) await replaceHalftone(s);
+    // Otro LPI puede necesitar otro tile (celda entera distinta): se cambia la capa de motivo
+    if (kinds.has("htType") || (kinds.has("ht") && L_.needsNewTile(s.lpi))) await replaceHalftone(s);
     else if (kinds.has("ht")) await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
 
-    if (MASK_KINDS.some(k => kinds.has(k))) await refreshMask(s);   // restaura también la vista
-    else if (kinds.has("preview")) await setPreviewMode(state.previewMode);
+    // La máscara (cara: compone todo el documento al 100 %) solo se recalcula con "flushMask";
+    // mientras se arrastra, la vista usa el mapa en vivo (ver preview.js).
+    const maskChanged = MASK_KINDS.some(k => kinds.has(k));
+    if (maskChanged) state.maskFresh = false;
+    if (kinds.has("flushMask") && !state.maskFresh) await refreshMask(s);          // restaura también la vista
+    else if (maskChanged || kinds.has("preview")) await setPreviewMode(state.previewMode, s);
   }, { history: true });
 }
 
-module.exports = { validateState, sync, ALL_KINDS: ["shirt", "ko", "levels", "shadow", "htType", "mask"] };
+module.exports = { validateState, sync, ALL_KINDS: ["shirt", "ko", "levels", "sens", "dots", "shadow", "htType", "mask", "flushMask"] };
 
 };
 defs["src/ps/mask.js"] = function (module, exports, require) {
@@ -852,7 +1199,7 @@ defs["src/ps/mask.js"] = function (module, exports, require) {
 // máscara de capa desde ella (conserva los grises). Agrupado en pocas llamadas para ir rápido en vivo.
 const { state } = require("../state");
 const { bp, layerById, channel } = require("./bp");
-const { previewDescs, vis } = require("./preview");
+const { previewDescs, vis, blend } = require("./preview");
 
 const SELECTION = { _ref: "channel", _property: "selection" };
 const selectArt = () => ({ _obj: "select", _target: [layerById(state.layers.art)], makeVisible: false });
@@ -866,28 +1213,30 @@ async function deleteMask() {
 }
 
 async function refreshMask(s = state.settings) {
+  state.maskFresh = false;
   const L = state.layers;
   const parts = [vis(L.ko, s.knockout), vis(L.desat, s.knockout),
                  vis(L.halftone, s.halftone), vis(L.threshold, !s.halftone)];
 
   if (s.knockout) {
     // Solo MAP GROUP visible -> luminosidad compuesta como selección
-    await bp([...parts, vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true),
+    await bp([...parts, blend(L.mapGroup, "passThrough"), vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true),
               { _obj: "set", _target: [SELECTION], to: channel("RGB") },
               vis(L.mapGroup, false)]);
     await deleteMask();
     await bp([selectArt(), makeMask("revealSelection"),
               { _obj: "set", _target: [SELECTION], to: { _enum: "ordinal", _value: "none" } },
               { _obj: "select", _target: [channel("RGB")], makeVisible: false },
-              ...previewDescs(state.previewMode)]);
+              ...previewDescs(state.previewMode, false, s)]);
   } else {
     // Sin knockout: todo opaco
     await bp(parts);
     await deleteMask();
     await bp([selectArt(), makeMask("revealAll"),
               { _obj: "select", _target: [channel("RGB")], makeVisible: false },
-              ...previewDescs(state.previewMode)]);
+              ...previewDescs(state.previewMode, false, s)]);
   }
+  state.maskFresh = true;
 }
 
 module.exports = { refreshMask };
@@ -896,8 +1245,9 @@ module.exports = { refreshMask };
 defs["src/ps/pipeline.js"] = function (module, exports, require) {
 const { app, constants } = require("photoshop");
 const { state, resetState } = require("../state");
+const perf = require("../perf");
 const {
-  bp, modal, px, validId, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
+  bp, bpThenId, modal, px, validId, layerById, targetLayer, channel, selectLayer, findLayer, baseName
 } = require("./bp");
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
@@ -916,9 +1266,23 @@ function getWorkDoc() {
   return d;
 }
 
+// Fusiona las capas visibles en una sola (conserva la transparencia) y descarta las ocultas:
+// el objeto inteligente ART no arrastra un PSB con todas las capas originales.
+async function mergeVisibleLayers(work) {
+  try {
+    const visible = work.layers.filter(l => l.visible);
+    if (visible.length > 1) await bp({ _obj: "mergeVisible" });                                          // 🔍
+    const keep = work.layers.filter(l => l.visible);
+    if (keep.length !== 1) return;                                           // estado inesperado: se deja como estaba
+    for (const l of [...work.layers]) if (l.id !== keep[0].id) await l.delete();
+  } catch (e) { console.log("No se pudo fusionar las capas visibles:", e); }
+}
+
 // ---- Preparar ---------------------------------------------------------------
 // s = ajustes de la UI + widthPx / heightPx (tamaño objetivo a 300 ppi)
-async function runPrep(s) {
+function runPrep(s) { return perf.track("Preparar", () => runPrepTracked(s)); }
+
+async function runPrepTracked(s) {
   const src = app.activeDocument;
   if (!src) throw new Error("No hay documento abierto.");
   state.phase = "RUNNING";
@@ -935,6 +1299,9 @@ async function runPrep(s) {
       app.activeDocument = work;
       state.workDocId = work.id;
       if (work.mode !== constants.DocumentMode.RGB) await work.changeMode(constants.ChangeMode.RGB);
+      // 8 bits/canal: con 16/32 bits la memoria y el tiempo de cada render se duplican o cuadruplican
+      try { await bp({ _obj: "convertMode", depth: 8, merge: false, rasterize: false }); }                // 🔍
+      catch (e) { console.log("Profundidad 8 bits no aplicada:", e); }
 
       at("historial");
       const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Open-DTF: Preparar" });
@@ -949,8 +1316,8 @@ async function runPrep(s) {
 
         // 3) Aplanar todo en un objeto inteligente "ART"
         at("objeto inteligente ART");
-        await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
-        const artId = await lastLayerId();
+        await mergeVisibleLayers(work);
+        const artId = await bpThenId([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
         await bp({ _obj: "set", _target: [targetLayer], to: { _obj: "layer", name: "ART" } });
         validId(artId, "ART");
         const artLayer = findLayer(work, artId);
@@ -974,9 +1341,14 @@ async function runPrep(s) {
         await selectLayer(mapArtId);
         at("KO COLOR");
         const koId = await L_.makeSolid("KO COLOR", s.knockoutColor, "difference");
-        at("MAP DESAT / MAP LEVELS / umbral");
-        const desatId = await L_.makeHueSatDesat("MAP DESAT");
+        at("MAP DESAT / MAP LEVELS / MAP DOTS / umbral");
+        const desat = await L_.makeMapDesat("MAP DESAT", s.colorSens);
+        const desatId = desat.id;
+        state.desatKind = desat.kind;
         const levelsId = await L_.makeLevels("MAP LEVELS", s);
+        let curvesId = null;               // punto mín./máx.: si Photoshop no acepta la curva, la función queda desactivada
+        try { curvesId = await L_.makeCurves("MAP DOTS", s.dotMin, s.dotMax); }
+        catch (e) { console.log("Curva de punto mín./máx. no disponible:", e); }
         const thrId = await L_.makeThreshold("MAP THRESHOLD");
         at("capa de semitono");
         const htId = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
@@ -985,7 +1357,7 @@ async function runPrep(s) {
         ctx.reportProgress({ value: 0.6, commandName: "Construyendo mapa de semitono" });
 
         at("agrupar MAP GROUP");
-        const members = [mapBgId, mapArtId, koId, desatId, levelsId, thrId, htId].map(id => {
+        const members = [mapBgId, mapArtId, koId, desatId, levelsId, curvesId, thrId, htId].filter(id => id !== null).map(id => {
           const l = findLayer(work, id);
           if (!l) throw new Error(`Capa no encontrada (id ${id})`);
           return l;
@@ -995,6 +1367,7 @@ async function runPrep(s) {
 
         Object.assign(state.layers, { art: artId, shirt: shirtId, mapGroup: mapGroupId, mapArt: mapArtId,
           mapBg: mapBgId, ko: koId, desat: desatId, levels: levelsId, threshold: thrId, halftone: htId });
+        if (curvesId !== null) state.layers.curves = curvesId;
 
         // 6) Realce de sombras (filtro inteligente) y máscara en ART
         at("sombras y máscara");
@@ -1039,10 +1412,13 @@ async function cancelPrep() {
     if (src) app.activeDocument = src;
   });
   resetState();
+  await L_.cleanupPatterns();
 }
 
 // ---- Aplicar -----------------------------------------------------------------
-async function applyPrep(s) {
+function applyPrep(s) { return perf.track("Aplicar", () => applyPrepTracked(s)); }
+
+async function applyPrepTracked(s) {
   await modal("Open-DTF: Aplicar", async (ctx) => {
     const work = getWorkDoc();
     app.activeDocument = work;
@@ -1050,10 +1426,11 @@ async function applyPrep(s) {
     ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
 
     // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
-    await refreshMask(s);
+    if (!state.maskFresh) await refreshMask(s);          // la vista en vivo ya la dejó al día
     if (s.nativeFinal && s.halftone && s.knockout) {
       try { await nativeScreenMask(s); }
       catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
+      state.maskFresh = false;
     }
     checkCancel(ctx);
 
@@ -1075,8 +1452,11 @@ async function applyPrep(s) {
     checkCancel(ctx);
     ctx.reportProgress({ value: 0.6, commandName: "Rasterizando" });
 
-    // 4) Rasterizar y aplicar la máscara
+    // 4) Liberar las capas de trabajo (el mapa ya está en la máscara), rasterizar y aplicar la máscara
     await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
+    try {
+      await bp({ _obj: "delete", _target: [layerById(L.mapGroup), layerById(L.shirt)] });
+    } catch (e) { console.log("No se pudieron liberar las capas de trabajo:", e); }
     await bp([
       { _obj: "rasterizeLayer", _target: [layerById(L.art)] },
       { _obj: "delete", _target: [channel("mask")], apply: true }
@@ -1087,6 +1467,7 @@ async function applyPrep(s) {
     const name = baseName(work.title).replace(/ - Prep$/, "") + " - Prepped";
     const layer = findLayer(work, L.art);
     layer.name = name;
+    ctx.reportProgress({ value: 0.85, commandName: "Creando documento final" });
     const out = await app.documents.add({
       width: work.width, height: work.height, resolution: work.resolution,
       mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name
@@ -1098,6 +1479,7 @@ async function applyPrep(s) {
     ctx.reportProgress({ value: 1, commandName: "Listo" });
   });
   resetState();
+  await L_.cleanupPatterns();
 }
 
 module.exports = { runPrep, applyPrep, cancelPrep, getWorkDoc };
@@ -1109,26 +1491,42 @@ const { bp, layerById } = require("./bp");
 
 const vis = (id, on) => ({ _obj: on ? "show" : "hide", null: [layerById(id)] });
 const maskOn = (id, on) => ({ _obj: "set", _target: [layerById(id)], to: { _obj: "layer", userMaskEnabled: on } });
+const blend = (id, mode) => ({ _obj: "set", _target: [layerById(id)],
+                               to: { _obj: "layer", mode: { _enum: "blendMode", _value: mode } } });   // 🔍 grupo en multiply / passThrough
 
-// Descriptores de cada vista (Original / Prenda / Alfa / Máscara), para enviarlos en un solo batchPlay
-function previewDescs(mode) {
+// Visibilidad de las capas que definen el mapa (según knockout y semitono)
+function partsDescs(s) {
+  const L = state.layers;
+  return [vis(L.ko, s.knockout), vis(L.desat, s.knockout), vis(L.halftone, s.halftone), vis(L.threshold, !s.halftone)];
+}
+
+// Descriptores de cada vista (Original / Prenda / Alfa / Máscara), para enviarlos en un solo batchPlay.
+// stale = la máscara de ART no está al día (ajuste en curso): se muestra el mapa en vivo, que Photoshop
+// compone solo a la resolución de pantalla, en lugar de la máscara. Prenda = ART × mapa (exacto con prenda negra).
+function previewDescs(mode, stale = false, s = state.settings) {
   const L = state.layers;
   switch (mode) {
     case "original": return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, false), vis(L.shirt, false)];
-    case "alpha":    return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, false)];
-    case "mask":     return [vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true)];
-    default:         return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, true)];
+    case "alpha":
+      if (!stale) return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, false)];
+      if (!s.knockout) return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, false), vis(L.shirt, false)];
+      return [...partsDescs(s), blend(L.mapGroup, "passThrough"), vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true)];
+    case "mask":
+      return [...(stale ? partsDescs(s) : []), blend(L.mapGroup, "passThrough"),
+              vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true)];
+    default:
+      if (!stale) return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, true)];
+      return [...partsDescs(s), blend(L.mapGroup, "multiply"), vis(L.art, true), maskOn(L.art, false),
+              vis(L.shirt, true), vis(L.mapGroup, s.knockout)];
   }
 }
 
-async function setPreviewMode(mode) {
+async function setPreviewMode(mode, s = state.settings) {
   state.previewMode = mode;
-  await bp(previewDescs(mode));
+  await bp(previewDescs(mode, !state.maskFresh, s));
 }
 
-const restorePreviewVisibility = () => setPreviewMode(state.previewMode);
-
-module.exports = { setPreviewMode, restorePreviewVisibility, previewDescs, vis };
+module.exports = { setPreviewMode, previewDescs, vis, blend };
 
 };
 defs["src/ps/screen.js"] = function (module, exports, require) {
@@ -1151,33 +1549,35 @@ async function nativeScreenMask({ lpi, angle, htType }) {
   await bp({ _obj: "duplicate", _target: [{ _ref: "document", _enum: "ordinal", _value: "targetEnum" }],
              name: "__ht_tmp", merged: true });                                                    // 🔍
   const tmp = app.activeDocument;
+  try {
+    // 2) Escala de grises -> Mapa de bits (trama de semitonos) -> Escala de grises
+    await bp([
+      { _obj: "convertMode", to: { _class: "grayscaleMode" } },
+      { _obj: "convertMode", to: { _obj: "bitmapMode",
+          resolution: { _unit: "densityUnit", _value: tmp.resolution },
+          method:     { _enum: "method", _value: "halftoneScreen" },
+          frequency:  { _unit: "densityUnit", _value: lpi },
+          angle:      { _unit: "angleUnit",   _value: angle },
+          shape:      { _enum: "shape", _value: SHAPES[htType] || "round" } } },                    // 🔍
+      { _obj: "convertMode", to: { _class: "grayscaleMode" }, ratio: 1 }                            // 🔍
+    ]);
 
-  // 2) Escala de grises -> Mapa de bits (trama de semitonos) -> Escala de grises
-  await bp([
-    { _obj: "convertMode", to: { _class: "grayscaleMode" } },
-    { _obj: "convertMode", to: { _obj: "bitmapMode",
-        resolution: { _unit: "densityUnit", _value: tmp.resolution },
-        method:     { _enum: "method", _value: "halftoneScreen" },
-        frequency:  { _unit: "densityUnit", _value: lpi },
-        angle:      { _unit: "angleUnit",   _value: angle },
-        shape:      { _enum: "shape", _value: SHAPES[htType] || "round" } } },                    // 🔍
-    { _obj: "convertMode", to: { _class: "grayscaleMode" }, ratio: 1 }                            // 🔍
-  ]);
-
-  // 3) Aplicar imagen desde el documento temporal a la máscara de ART (sin portapapeles)
-  app.activeDocument = work;
-  await selectLayer(L.art);
-  await bp([
-    { _obj: "select", _target: [channel("mask")], makeVisible: false },
-    { _obj: "applyImageEvent", with: { _obj: "calculation",
-        to: [channel("gray"), { _ref: "layer", _name: "Background" }, docById(tmp.id)],
-        calculation: { _enum: "calculationType", _value: "normal" } } }                           // 🔍
-  ]);
-  await tmp.closeWithoutSaving();
-  app.activeDocument = work;
-  await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
-  await bp({ _obj: "hide", null: [layerById(L.mapGroup)] });
-  await setVisible(L.halftone, true);
+    // 3) Aplicar imagen desde el documento temporal a la máscara de ART (sin portapapeles)
+    app.activeDocument = work;
+    await selectLayer(L.art);
+    await bp([
+      { _obj: "select", _target: [channel("mask")], makeVisible: false },
+      { _obj: "applyImageEvent", with: { _obj: "calculation",
+          to: [channel("gray"), { _ref: "layer", _name: "Background" }, docById(tmp.id)],
+          calculation: { _enum: "calculationType", _value: "normal" } } }                           // 🔍
+    ]);
+    await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
+    await bp({ _obj: "hide", null: [layerById(L.mapGroup)] });
+    await setVisible(L.halftone, true);
+  } finally {
+    try { await tmp.closeWithoutSaving(); } catch (e) { /* ya cerrado */ }
+    app.activeDocument = work;
+  }
 }
 
 module.exports = { nativeScreenMask };
@@ -1190,11 +1590,9 @@ const DEFAULTS = {
   lpi: 30, angle: 33, htType: "ROUND", halftone: true, knockout: true,
   knockoutColor: { r: 0, g: 0, b: 0 }, shirt: { r: 0, g: 0, b: 0 }, linked: true,
   black: 7, gamma: 2.0, white: 100, outBlack: 0, outWhite: 255, shadow: 0,
-  cleanup: "standard", defringe: false, nativeFinal: false
+  cleanup: "standard", defringe: false, nativeFinal: false,
+  colorSens: 50, dotMin: 0, dotMax: 100
 };
-
-const HT_TYPES = ["ROUND", "LINE", "DIAMOND", "ELLIPSE"];
-const CLEANUPS = ["none", "standard", "high"];
 
 const state = {
   phase: "IDLE",          // IDLE | RUNNING | ACTIVE
@@ -1203,7 +1601,10 @@ const state = {
   layers: {},             // IDs: art, shirt, mapGroup, mapArt, mapBg, ko, desat, levels, threshold, halftone
   settings: JSON.parse(JSON.stringify(DEFAULTS)),
   previewMode: "shirt",
-  shadowOn: false
+  shadowOn: false,
+  desatKind: "hs",        // MAP DESAT: "bw" (Blanco y negro) o "hs" (Tono/Saturación, alternativa)
+  htTile: { type: null, n: 0, tilePx: 0 },   // tile del motivo en uso
+  maskFresh: false        // la máscara de ART refleja los ajustes actuales
 };
 
 function resetState() {
@@ -1213,9 +1614,12 @@ function resetState() {
   state.layers = {};
   state.previewMode = "shirt";
   state.shadowOn = false;
+  state.maskFresh = false;
+  state.desatKind = "hs";
+  state.htTile = { type: null, n: 0, tilePx: 0 };
 }
 
-module.exports = { TILE_PX, DEFAULTS, HT_TYPES, CLEANUPS, state, resetState };
+module.exports = { TILE_PX, DEFAULTS, state, resetState };
 
 };
 defs["src/ui/colorPicker.js"] = function (module, exports, require) {
@@ -1341,8 +1745,8 @@ const createOutputSlider = (root, onChange) => createSlider(root, {
   handles: [{ key: "outBlack", kind: "value" }, { key: "outWhite", kind: "value" }] });
 
 // Slider de un valor (sombras, LPI, ángulo)
-const createValueSlider = (root, key, { min, max, stepBy = 1 }, onChange) => createSlider(root, {
-  min, max, onChange, fill: [null, key],
+const createValueSlider = (root, key, { min, max, stepBy = 1 }, onChange, onCommit) => createSlider(root, {
+  min, max, onChange, onCommit, fill: [null, key],
   constrain: (k, v) => clamp(+step(v, stepBy).toFixed(2), min, max),
   handles: [{ key, kind: "value" }] });
 
@@ -1356,8 +1760,10 @@ const INCH = { in: 1, cm: 2.54, mm: 25.4 };
 const toPx = (value, unit) => Math.round(value * RES / INCH[unit]);
 const fromPx = (px, unit) => Math.round((px / RES) * INCH[unit] * 1000) / 1000;
 const lpiToLpc = lpi => lpi / 2.54;
+// LPI más cercano cuya celda mide un número entero de píxeles a 300 ppi
+const wholeCellLpi = lpi => Math.round((RES / Math.max(1, Math.round(RES / lpi))) * 10) / 10;
 
-module.exports = { RES, INCH, toPx, fromPx, lpiToLpc };
+module.exports = { RES, INCH, toPx, fromPx, lpiToLpc, wholeCellLpi };
 
 };
 defs["src/util.js"] = function (module, exports, require) {
@@ -1371,29 +1777,9 @@ function debounce(fn, ms) {
   return wrapped;
 }
 
-// Serializa tareas asíncronas: la última pendiente sustituye a las intermedias.
-function createQueue() {
-  let running = false;
-  let next = null;
-  return async function enqueue(task) {
-    next = task;
-    if (running) return;
-    running = true;
-    try {
-      while (next) {
-        const t = next;
-        next = null;
-        await t();
-      }
-    } finally {
-      running = false;
-    }
-  };
-}
-
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-module.exports = { debounce, createQueue, clamp };
+module.exports = { debounce, clamp };
 
 };
   try {

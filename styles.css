@@ -153,3 +153,7 @@ kbd { font-family: var(--mono); font-size: 10px; border: 1px solid var(--line); 
   .seg-btn { font-size: 10px; }
   .wordmark { font-size: 16px; }
 }
+
+/* Panel de depuración de rendimiento (oculto; se activa pulsando 5 veces el nombre) */
+.perf-out { width: 100%; box-sizing: border-box; font-family: monospace; font-size: 10px; line-height: 1.4;
+  color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: var(--s2); }

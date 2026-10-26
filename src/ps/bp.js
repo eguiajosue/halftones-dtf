@@ -1,4 +1,5 @@
 const { action, core, app } = require("photoshop");
+const perf = require("../perf");
 
 const px  = v => ({ _unit: "pixelsUnit",  _value: v });
 const pct = v => ({ _unit: "percentUnit", _value: v });
@@ -16,10 +17,13 @@ const channel = v => ({ _ref: "channel", _enum: "channel", _value: v });
 async function bp(descs) {
   const list = Array.isArray(descs) ? descs : [descs];
   let res;
+  const t0 = Date.now();
   try {
     res = await action.batchPlay(list, { modalBehavior: "execute" });
   } catch (e) {
     throw new Error(`${list.map(d => d._obj).join(",")}: ${e.message}`);
+  } finally {
+    perf.noteBatch(list.map(d => d._obj).join(","), Date.now() - t0);
   }
   res.forEach((r, i) => {
     if (r && r._obj === "error") throw new Error(`${list[i]._obj}: ${r.message}`);
@@ -45,9 +49,11 @@ async function modal(name, fn, { history = false } = {}) {
 const selectLayer = id => bp({ _obj: "select", _target: [layerById(id)], makeVisible: false });
 const setVisible = (id, on) => bp({ _obj: on ? "show" : "hide", null: [layerById(id)] });
 
-async function lastLayerId() {
-  const r = await bp({ _obj: "get", _target: [{ _property: "layerID" }, targetLayer] });
-  return r[0].layerID;
+// Ejecuta descriptores y devuelve el ID de la capa activa al final, en un solo viaje al host
+async function bpThenId(descs) {
+  const list = Array.isArray(descs) ? descs : [descs];
+  const r = await bp([...list, { _obj: "get", _target: [{ _property: "layerID" }, targetLayer] }]);
+  return r[r.length - 1].layerID;
 }
 
 function findLayer(container, id) {
@@ -65,5 +71,5 @@ const baseName = title => String(title).replace(/\.[^./\\]+$/, "");
 
 module.exports = {
   px, pct, deg, rgb, validId, layerById, docById, targetLayer, channel,
-  bp, modal, selectLayer, setVisible, lastLayerId, findLayer, baseName
+  bp, bpThenId, modal, selectLayer, setVisible, findLayer, baseName
 };

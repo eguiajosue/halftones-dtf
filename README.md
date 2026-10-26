@@ -18,7 +18,7 @@ Plugin **libre y de código abierto** (MIT) para Adobe Photoshop que prepara dis
 1. Instala **UXP Developer Tool**; en Photoshop activa *Preferencias › Plugins › Habilitar modo desarrollador*.
 2. UDT → *Add Plugin* → `manifest.json` → *Load*.
 3. El código está en `src/`. `npm run build` genera `main.js` (el bundle que carga Photoshop): reconstrúyelo tras editar `src/`.
-4. `npm run check` (regla nativa y sintaxis) · `npm run package` → `dist/OpenDTF_v<versión>.ccx`.
+4. `npm run check` (regla nativa y sintaxis) · `npm test` (lógica pura con `node:test`, sin dependencias) · `npm run package` → `dist/OpenDTF_v<versión>.ccx`.
 5. `npm run tiles` / `npm run icons` regeneran los recursos (Python 3, solo herramienta de desarrollo).
 
 Más detalles en [CONTRIBUTING.md](CONTRIBUTING.md). Los descriptores de batchPlay pendientes de validar están en [`docs/VERIFICACION.md`](docs/VERIFICACION.md).
@@ -37,3 +37,6 @@ Sube la versión en `manifest.json` y `package.json` y haz merge a `main`. Despu
 
 ## Licencia
 [MIT](LICENSE). No afiliado a Adobe; Photoshop es una marca de Adobe.
+
+## Panel de depuración de rendimiento
+Oculto por defecto. Pulsa 5 veces seguidas sobre el nombre «Open-DTF» de la cabecera para mostrarlo u ocultarlo (se recuerda entre sesiones). Muestra, por tipo de operación (Preparar, Aplicar, cada ajuste en vivo), el nº de muestras, p50, p95 y máximo, el nº de `batchPlay` y los 3 más lentos de la última operación, junto con la versión de Photoshop y el tamaño del documento. Selecciona el texto y pégalo en la plantilla de incidencias de rendimiento.

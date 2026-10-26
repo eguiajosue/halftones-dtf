@@ -3,7 +3,7 @@
 // máscara de capa desde ella (conserva los grises). Agrupado en pocas llamadas para ir rápido en vivo.
 const { state } = require("../state");
 const { bp, layerById, channel } = require("./bp");
-const { previewDescs, vis } = require("./preview");
+const { previewDescs, vis, blend } = require("./preview");
 
 const SELECTION = { _ref: "channel", _property: "selection" };
 const selectArt = () => ({ _obj: "select", _target: [layerById(state.layers.art)], makeVisible: false });
@@ -17,28 +17,30 @@ async function deleteMask() {
 }
 
 async function refreshMask(s = state.settings) {
+  state.maskFresh = false;
   const L = state.layers;
   const parts = [vis(L.ko, s.knockout), vis(L.desat, s.knockout),
                  vis(L.halftone, s.halftone), vis(L.threshold, !s.halftone)];
 
   if (s.knockout) {
     // Solo MAP GROUP visible -> luminosidad compuesta como selección
-    await bp([...parts, vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true),
+    await bp([...parts, blend(L.mapGroup, "passThrough"), vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true),
               { _obj: "set", _target: [SELECTION], to: channel("RGB") },
               vis(L.mapGroup, false)]);
     await deleteMask();
     await bp([selectArt(), makeMask("revealSelection"),
               { _obj: "set", _target: [SELECTION], to: { _enum: "ordinal", _value: "none" } },
               { _obj: "select", _target: [channel("RGB")], makeVisible: false },
-              ...previewDescs(state.previewMode)]);
+              ...previewDescs(state.previewMode, false, s)]);
   } else {
     // Sin knockout: todo opaco
     await bp(parts);
     await deleteMask();
     await bp([selectArt(), makeMask("revealAll"),
               { _obj: "select", _target: [channel("RGB")], makeVisible: false },
-              ...previewDescs(state.previewMode)]);
+              ...previewDescs(state.previewMode, false, s)]);
   }
+  state.maskFresh = true;
 }
 
 module.exports = { refreshMask };

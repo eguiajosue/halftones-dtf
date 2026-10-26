@@ -27,5 +27,5 @@ Abre un [issue](https://github.com/eguiajosue/halftones-dtf/issues) con:
 ## Publicar una versión (mantenedores)
 1. Sube la versión en `manifest.json` y `package.json`.
 2. Haz merge a `main`.
-3. En GitHub: **Releases › Draft a new release**, crea un tag igual a la versión (p. ej. `v1.3.0`) sobre `main` y pulsa **Publish release**. También vale empujar el tag con git. O bien **Actions › Release › Run workflow** (rama `main`) escribiendo el tag.
+3. En GitHub: **Releases › Draft a new release**, crea un tag igual a la versión (p. ej. `v1.5.0`) sobre `main` y pulsa **Publish release**. También vale empujar el tag con git. O bien **Actions › Release › Run workflow** (rama `main`) escribiendo el tag.
 4. El workflow **Release** construye el `.ccx` y lo adjunta al release (como `OpenDTF_vX.Y.Z.ccx` y `OpenDTF.ccx`).

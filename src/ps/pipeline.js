@@ -1,7 +1,8 @@
 const { app, constants } = require("photoshop");
 const { state, resetState } = require("../state");
+const perf = require("../perf");
 const {
-  bp, modal, px, validId, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
+  bp, bpThenId, modal, px, validId, layerById, targetLayer, channel, selectLayer, findLayer, baseName
 } = require("./bp");
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
@@ -20,9 +21,23 @@ function getWorkDoc() {
   return d;
 }
 
+// Fusiona las capas visibles en una sola (conserva la transparencia) y descarta las ocultas:
+// el objeto inteligente ART no arrastra un PSB con todas las capas originales.
+async function mergeVisibleLayers(work) {
+  try {
+    const visible = work.layers.filter(l => l.visible);
+    if (visible.length > 1) await bp({ _obj: "mergeVisible" });                                          // 🔍
+    const keep = work.layers.filter(l => l.visible);
+    if (keep.length !== 1) return;                                           // estado inesperado: se deja como estaba
+    for (const l of [...work.layers]) if (l.id !== keep[0].id) await l.delete();
+  } catch (e) { console.log("No se pudo fusionar las capas visibles:", e); }
+}
+
 // ---- Preparar ---------------------------------------------------------------
 // s = ajustes de la UI + widthPx / heightPx (tamaño objetivo a 300 ppi)
-async function runPrep(s) {
+function runPrep(s) { return perf.track("Preparar", () => runPrepTracked(s)); }
+
+async function runPrepTracked(s) {
   const src = app.activeDocument;
   if (!src) throw new Error("No hay documento abierto.");
   state.phase = "RUNNING";
@@ -39,6 +54,9 @@ async function runPrep(s) {
       app.activeDocument = work;
       state.workDocId = work.id;
       if (work.mode !== constants.DocumentMode.RGB) await work.changeMode(constants.ChangeMode.RGB);
+      // 8 bits/canal: con 16/32 bits la memoria y el tiempo de cada render se duplican o cuadruplican
+      try { await bp({ _obj: "convertMode", depth: 8, merge: false, rasterize: false }); }                // 🔍
+      catch (e) { console.log("Profundidad 8 bits no aplicada:", e); }
 
       at("historial");
       const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Open-DTF: Preparar" });
@@ -53,8 +71,8 @@ async function runPrep(s) {
 
         // 3) Aplanar todo en un objeto inteligente "ART"
         at("objeto inteligente ART");
-        await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
-        const artId = await lastLayerId();
+        await mergeVisibleLayers(work);
+        const artId = await bpThenId([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
         await bp({ _obj: "set", _target: [targetLayer], to: { _obj: "layer", name: "ART" } });
         validId(artId, "ART");
         const artLayer = findLayer(work, artId);
@@ -78,9 +96,14 @@ async function runPrep(s) {
         await selectLayer(mapArtId);
         at("KO COLOR");
         const koId = await L_.makeSolid("KO COLOR", s.knockoutColor, "difference");
-        at("MAP DESAT / MAP LEVELS / umbral");
-        const desatId = await L_.makeHueSatDesat("MAP DESAT");
+        at("MAP DESAT / MAP LEVELS / MAP DOTS / umbral");
+        const desat = await L_.makeMapDesat("MAP DESAT", s.colorSens);
+        const desatId = desat.id;
+        state.desatKind = desat.kind;
         const levelsId = await L_.makeLevels("MAP LEVELS", s);
+        let curvesId = null;               // punto mín./máx.: si Photoshop no acepta la curva, la función queda desactivada
+        try { curvesId = await L_.makeCurves("MAP DOTS", s.dotMin, s.dotMax); }
+        catch (e) { console.log("Curva de punto mín./máx. no disponible:", e); }
         const thrId = await L_.makeThreshold("MAP THRESHOLD");
         at("capa de semitono");
         const htId = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);
@@ -89,7 +112,7 @@ async function runPrep(s) {
         ctx.reportProgress({ value: 0.6, commandName: "Construyendo mapa de semitono" });
 
         at("agrupar MAP GROUP");
-        const members = [mapBgId, mapArtId, koId, desatId, levelsId, thrId, htId].map(id => {
+        const members = [mapBgId, mapArtId, koId, desatId, levelsId, curvesId, thrId, htId].filter(id => id !== null).map(id => {
           const l = findLayer(work, id);
           if (!l) throw new Error(`Capa no encontrada (id ${id})`);
           return l;
@@ -99,6 +122,7 @@ async function runPrep(s) {
 
         Object.assign(state.layers, { art: artId, shirt: shirtId, mapGroup: mapGroupId, mapArt: mapArtId,
           mapBg: mapBgId, ko: koId, desat: desatId, levels: levelsId, threshold: thrId, halftone: htId });
+        if (curvesId !== null) state.layers.curves = curvesId;
 
         // 6) Realce de sombras (filtro inteligente) y máscara en ART
         at("sombras y máscara");
@@ -143,10 +167,13 @@ async function cancelPrep() {
     if (src) app.activeDocument = src;
   });
   resetState();
+  await L_.cleanupPatterns();
 }
 
 // ---- Aplicar -----------------------------------------------------------------
-async function applyPrep(s) {
+function applyPrep(s) { return perf.track("Aplicar", () => applyPrepTracked(s)); }
+
+async function applyPrepTracked(s) {
   await modal("Open-DTF: Aplicar", async (ctx) => {
     const work = getWorkDoc();
     app.activeDocument = work;
@@ -154,10 +181,11 @@ async function applyPrep(s) {
     ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
 
     // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
-    await refreshMask(s);
+    if (!state.maskFresh) await refreshMask(s);          // la vista en vivo ya la dejó al día
     if (s.nativeFinal && s.halftone && s.knockout) {
       try { await nativeScreenMask(s); }
       catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
+      state.maskFresh = false;
     }
     checkCancel(ctx);
 
@@ -179,8 +207,11 @@ async function applyPrep(s) {
     checkCancel(ctx);
     ctx.reportProgress({ value: 0.6, commandName: "Rasterizando" });
 
-    // 4) Rasterizar y aplicar la máscara
+    // 4) Liberar las capas de trabajo (el mapa ya está en la máscara), rasterizar y aplicar la máscara
     await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
+    try {
+      await bp({ _obj: "delete", _target: [layerById(L.mapGroup), layerById(L.shirt)] });
+    } catch (e) { console.log("No se pudieron liberar las capas de trabajo:", e); }
     await bp([
       { _obj: "rasterizeLayer", _target: [layerById(L.art)] },
       { _obj: "delete", _target: [channel("mask")], apply: true }
@@ -191,6 +222,7 @@ async function applyPrep(s) {
     const name = baseName(work.title).replace(/ - Prep$/, "") + " - Prepped";
     const layer = findLayer(work, L.art);
     layer.name = name;
+    ctx.reportProgress({ value: 0.85, commandName: "Creando documento final" });
     const out = await app.documents.add({
       width: work.width, height: work.height, resolution: work.resolution,
       mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name
@@ -202,6 +234,7 @@ async function applyPrep(s) {
     ctx.reportProgress({ value: 1, commandName: "Listo" });
   });
   resetState();
+  await L_.cleanupPatterns();
 }
 
 module.exports = { runPrep, applyPrep, cancelPrep, getWorkDoc };

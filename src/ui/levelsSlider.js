@@ -99,8 +99,8 @@ const createOutputSlider = (root, onChange) => createSlider(root, {
   handles: [{ key: "outBlack", kind: "value" }, { key: "outWhite", kind: "value" }] });
 
 // Slider de un valor (sombras, LPI, ángulo)
-const createValueSlider = (root, key, { min, max, stepBy = 1 }, onChange) => createSlider(root, {
-  min, max, onChange, fill: [null, key],
+const createValueSlider = (root, key, { min, max, stepBy = 1 }, onChange, onCommit) => createSlider(root, {
+  min, max, onChange, onCommit, fill: [null, key],
   constrain: (k, v) => clamp(+step(v, stepBy).toFixed(2), min, max),
   handles: [{ key, kind: "value" }] });
 
