@@ -30,3 +30,9 @@ El plugin se escribió sin poder ejecutarlo en Photoshop. Antes de distribuirlo,
 - [ ] Vista Prenda durante el arrastre = `ART × mapa` (sin máscara): comparar con la vista tras recalcular la máscara; exacta con prenda negra, aproximada con otros colores
 - [ ] Tras ~300 ms sin cambios (o al soltar/pulsar un control discreto) la máscara se recalcula y la vista pasa a la máscara real
 - [ ] Medir: estados de historial por gesto (objetivo ≤ 2) y latencia por fotograma en los documentos M y L
+
+## Fase 3 (pendiente de validar)
+- [ ] `make` + `get layerID` en un solo `batchPlay` (bp.js › bpThenId) en todas las capas de *Preparar*
+- [ ] *Aplicar*: borrar `MAP GROUP` y `SHIRT` antes de rasterizar (el resultado final debe ser idéntico)
+- [ ] Botón «Celda entera» y etiqueta de celda (LPI efectivo a 300 ppi); comprobar que desaparece el moiré en tramas finas
+- [ ] Aviso de memoria por encima de 150 MP (requiere pulsar Preparar dos veces)

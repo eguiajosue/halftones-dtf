@@ -1,7 +1,7 @@
 const { app, constants } = require("photoshop");
 const { state, resetState } = require("../state");
 const {
-  bp, modal, px, validId, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
+  bp, bpThenId, modal, px, validId, layerById, targetLayer, channel, selectLayer, findLayer, baseName
 } = require("./bp");
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
@@ -72,8 +72,7 @@ async function runPrep(s) {
         // 3) Aplanar todo en un objeto inteligente "ART"
         at("objeto inteligente ART");
         await mergeVisibleLayers(work);
-        await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
-        const artId = await lastLayerId();
+        const artId = await bpThenId([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
         await bp({ _obj: "set", _target: [targetLayer], to: { _obj: "layer", name: "ART" } });
         validId(artId, "ART");
         const artLayer = findLayer(work, artId);
@@ -199,8 +198,11 @@ async function applyPrep(s) {
     checkCancel(ctx);
     ctx.reportProgress({ value: 0.6, commandName: "Rasterizando" });
 
-    // 4) Rasterizar y aplicar la máscara
+    // 4) Liberar las capas de trabajo (el mapa ya está en la máscara), rasterizar y aplicar la máscara
     await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
+    try {
+      await bp({ _obj: "delete", _target: [layerById(L.mapGroup), layerById(L.shirt)] });
+    } catch (e) { console.log("No se pudieron liberar las capas de trabajo:", e); }
     await bp([
       { _obj: "rasterizeLayer", _target: [layerById(L.art)] },
       { _obj: "delete", _target: [channel("mask")], apply: true }
@@ -211,6 +213,7 @@ async function applyPrep(s) {
     const name = baseName(work.title).replace(/ - Prep$/, "") + " - Prepped";
     const layer = findLayer(work, L.art);
     layer.name = name;
+    ctx.reportProgress({ value: 0.85, commandName: "Creando documento final" });
     const out = await app.documents.add({
       width: work.width, height: work.height, resolution: work.resolution,
       mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name

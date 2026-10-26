@@ -1,7 +1,7 @@
 const { app } = require("photoshop");
 const { state, DEFAULTS, resetState } = require("./state");
 const { debounce, clamp } = require("./util");
-const { fromPx, toPx, lpiToLpc } = require("./ui/units");
+const { RES, fromPx, toPx, lpiToLpc, wholeCellLpi } = require("./ui/units");
 const { pickColor, toCss } = require("./ui/colorPicker");
 const sliders = require("./ui/levelsSlider");
 const presets = require("./presets");
@@ -22,6 +22,8 @@ const prefs = {
 };
 let unit = prefs.get("unit", "in");
 let uiLocked = false;
+const BIG_MP = 150;          // por encima de este área (megapíxeles) se pide confirmación
+let bigConfirmed = null;
 
 // ---------- utilidades de UI (compatibles con UXP: sin toggleAttribute ni classList.toggle(x, bool)) ----------
 const setClass = (el, cls, on) => (on ? el.classList.add(cls) : el.classList.remove(cls));
@@ -188,6 +190,11 @@ function setSeg(id, attr, value) {
 
 function updateLpiLabel() {
   $("lblLpi").textContent = unit === "in" ? "(líneas/pulgada)" : `(LPI · ${lpiToLpc(S.lpi).toFixed(1)} LPC)`;
+  // Con celdas de tamaño no entero el motivo se remuestrea y los puntos salen irregulares (moiré)
+  const cell = RES / S.lpi;
+  const whole = Math.abs(cell - Math.round(cell)) < 0.05;
+  $("lblCell").textContent = `Celda: ${cell.toFixed(2)} px` + (whole ? " · exacta" : " · no entera");
+  setDisabled($("btnCell"), whole);
 }
 
 function syncHalftone() {
@@ -299,6 +306,11 @@ async function onRun() {
   if (Math.max(widthPx, heightPx) > 20000) {
     return message(`Tamaño muy grande (${widthPx}×${heightPx} px). Máximo recomendado: 20 000 px por lado.`, "warn");
   }
+  const mp = (widthPx * heightPx) / 1e6;
+  if (mp > BIG_MP && bigConfirmed !== `${widthPx}x${heightPx}`) {
+    bigConfirmed = `${widthPx}x${heightPx}`;
+    return message(`Documento de ${Math.round(mp)} MP: tardará y usará mucha memoria (calcula ~${Math.round(mp * 20 / 1000 * 10) / 10} GB). Pulsa Preparar de nuevo para continuar.`, "warn");
+  }
   message("");
   setDisabled($("btnRun"), true);
   try {
@@ -374,6 +386,11 @@ function bindUI() {
   });
   sAngle = sliders.createValueSlider($("sldAngle"), "angle", { min: ANGLE.min, max: ANGLE.max, stepBy: 0.5 }, v => {
     S.angle = v.angle; $("inAngle").value = v.angle; touch("ht");
+  });
+  $("btnCell").addEventListener("click", () => {
+    S.lpi = clamp(wholeCellLpi(S.lpi), 5, 234);
+    syncHalftone();
+    touch("ht");
   });
   bindNumber($("inLpi"), v => {
     if (!Number.isFinite(v)) return syncHalftone();

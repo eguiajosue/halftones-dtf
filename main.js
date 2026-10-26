@@ -22,7 +22,7 @@ defs["src/main.js"] = function (module, exports, require) {
 const { app } = require("photoshop");
 const { state, DEFAULTS, resetState } = require("./state");
 const { debounce, clamp } = require("./util");
-const { fromPx, toPx, lpiToLpc } = require("./ui/units");
+const { RES, fromPx, toPx, lpiToLpc, wholeCellLpi } = require("./ui/units");
 const { pickColor, toCss } = require("./ui/colorPicker");
 const sliders = require("./ui/levelsSlider");
 const presets = require("./presets");
@@ -43,6 +43,8 @@ const prefs = {
 };
 let unit = prefs.get("unit", "in");
 let uiLocked = false;
+const BIG_MP = 150;          // por encima de este área (megapíxeles) se pide confirmación
+let bigConfirmed = null;
 
 // ---------- utilidades de UI (compatibles con UXP: sin toggleAttribute ni classList.toggle(x, bool)) ----------
 const setClass = (el, cls, on) => (on ? el.classList.add(cls) : el.classList.remove(cls));
@@ -209,6 +211,11 @@ function setSeg(id, attr, value) {
 
 function updateLpiLabel() {
   $("lblLpi").textContent = unit === "in" ? "(líneas/pulgada)" : `(LPI · ${lpiToLpc(S.lpi).toFixed(1)} LPC)`;
+  // Con celdas de tamaño no entero el motivo se remuestrea y los puntos salen irregulares (moiré)
+  const cell = RES / S.lpi;
+  const whole = Math.abs(cell - Math.round(cell)) < 0.05;
+  $("lblCell").textContent = `Celda: ${cell.toFixed(2)} px` + (whole ? " · exacta" : " · no entera");
+  setDisabled($("btnCell"), whole);
 }
 
 function syncHalftone() {
@@ -320,6 +327,11 @@ async function onRun() {
   if (Math.max(widthPx, heightPx) > 20000) {
     return message(`Tamaño muy grande (${widthPx}×${heightPx} px). Máximo recomendado: 20 000 px por lado.`, "warn");
   }
+  const mp = (widthPx * heightPx) / 1e6;
+  if (mp > BIG_MP && bigConfirmed !== `${widthPx}x${heightPx}`) {
+    bigConfirmed = `${widthPx}x${heightPx}`;
+    return message(`Documento de ${Math.round(mp)} MP: tardará y usará mucha memoria (calcula ~${Math.round(mp * 20 / 1000 * 10) / 10} GB). Pulsa Preparar de nuevo para continuar.`, "warn");
+  }
   message("");
   setDisabled($("btnRun"), true);
   try {
@@ -395,6 +407,11 @@ function bindUI() {
   });
   sAngle = sliders.createValueSlider($("sldAngle"), "angle", { min: ANGLE.min, max: ANGLE.max, stepBy: 0.5 }, v => {
     S.angle = v.angle; $("inAngle").value = v.angle; touch("ht");
+  });
+  $("btnCell").addEventListener("click", () => {
+    S.lpi = clamp(wholeCellLpi(S.lpi), 5, 234);
+    syncHalftone();
+    touch("ht");
   });
   bindNumber($("inLpi"), v => {
     if (!Number.isFinite(v)) return syncHalftone();
@@ -631,9 +648,11 @@ async function modal(name, fn, { history = false } = {}) {
 const selectLayer = id => bp({ _obj: "select", _target: [layerById(id)], makeVisible: false });
 const setVisible = (id, on) => bp({ _obj: on ? "show" : "hide", null: [layerById(id)] });
 
-async function lastLayerId() {
-  const r = await bp({ _obj: "get", _target: [{ _property: "layerID" }, targetLayer] });
-  return r[0].layerID;
+// Ejecuta descriptores y devuelve el ID de la capa activa al final, en un solo viaje al host
+async function bpThenId(descs) {
+  const list = Array.isArray(descs) ? descs : [descs];
+  const r = await bp([...list, { _obj: "get", _target: [{ _property: "layerID" }, targetLayer] }]);
+  return r[r.length - 1].layerID;
 }
 
 function findLayer(container, id) {
@@ -651,7 +670,7 @@ const baseName = title => String(title).replace(/\.[^./\\]+$/, "");
 
 module.exports = {
   px, pct, deg, rgb, validId, layerById, docById, targetLayer, channel,
-  bp, modal, selectLayer, setVisible, lastLayerId, findLayer, baseName
+  bp, bpThenId, modal, selectLayer, setVisible, findLayer, baseName
 };
 
 };
@@ -704,29 +723,26 @@ const { app } = require("photoshop");
 const { storage } = require("uxp");
 const { TILE_PX, state } = require("../state");
 const {
-  bp, px, pct, deg, rgb, layerById, targetLayer, selectLayer, lastLayerId
+  bp, bpThenId, px, pct, deg, rgb, layerById, targetLayer, selectLayer
 } = require("./bp");
 
 async function makeSolid(name, color, mode = "normal") {
-  await bp({ _obj: "make", _target: [{ _ref: "contentLayer" }],
+  return bpThenId({ _obj: "make", _target: [{ _ref: "contentLayer" }],
     using: { _obj: "contentLayer", name, mode: { _enum: "blendMode", _value: mode },
              type: { _obj: "solidColorLayer", color: rgb(color) } } });
-  return lastLayerId();
 }
 
 async function makeHueSatDesat(name) {
-  await bp({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+  return bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
     using: { _obj: "adjustmentLayer", name,
       type: { _obj: "hueSaturation", presetKind: { _enum: "presetKindType", _value: "presetKindCustom" },
               colorize: false,
               adjustment: [{ _obj: "hueSatAdjustmentV2", hue: 0, saturation: -100, lightness: 0 }] } } });
-  return lastLayerId();
 }
 
 async function makeThreshold(name, level = 128) {
-  await bp({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+  return bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
     using: { _obj: "adjustmentLayer", name, type: { _obj: "thresholdClassEvent", level } } });
-  return lastLayerId();
 }
 
 async function setLevels(id, { black, gamma, white, outBlack, outWhite }) {
@@ -738,10 +754,9 @@ async function setLevels(id, { black, gamma, white, outBlack, outWhite }) {
 }
 
 async function makeLevels(name, s) {
-  await bp({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+  const id = await bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
     using: { _obj: "adjustmentLayer", name, type: { _obj: "levels",
       presetKind: { _enum: "presetKindType", _value: "presetKindDefault" } } } });
-  const id = await lastLayerId();
   await setLevels(id, s);
   return id;
 }
@@ -812,10 +827,9 @@ async function makeHalftoneLayer(type, lpi, angle) {
   const { name, id } = await ensurePattern(type);
   const res = app.activeDocument.resolution;
   const pattern = id ? { _obj: "pattern", name, ID: id } : { _obj: "pattern", name };
-  await bp({ _obj: "make", _target: [{ _ref: "contentLayer" }],
+  const layerId = await bpThenId({ _obj: "make", _target: [{ _ref: "contentLayer" }],
     using: { _obj: "contentLayer", name: "HT PATTERN",
       type: { _obj: "patternLayer", pattern, scale: pct(patternScale(lpi, res)), angle: deg(angle) } } }); // 🔍
-  const layerId = await lastLayerId();
   await bp({ _obj: "set", _target: [layerById(layerId)],
     to: { _obj: "layer", mode: { _enum: "blendMode", _value: "hardMix" }, fillOpacity: pct(100) } });
   return layerId;
@@ -974,7 +988,7 @@ defs["src/ps/pipeline.js"] = function (module, exports, require) {
 const { app, constants } = require("photoshop");
 const { state, resetState } = require("../state");
 const {
-  bp, modal, px, validId, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
+  bp, bpThenId, modal, px, validId, layerById, targetLayer, channel, selectLayer, findLayer, baseName
 } = require("./bp");
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
@@ -1045,8 +1059,7 @@ async function runPrep(s) {
         // 3) Aplanar todo en un objeto inteligente "ART"
         at("objeto inteligente ART");
         await mergeVisibleLayers(work);
-        await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
-        const artId = await lastLayerId();
+        const artId = await bpThenId([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
         await bp({ _obj: "set", _target: [targetLayer], to: { _obj: "layer", name: "ART" } });
         validId(artId, "ART");
         const artLayer = findLayer(work, artId);
@@ -1172,8 +1185,11 @@ async function applyPrep(s) {
     checkCancel(ctx);
     ctx.reportProgress({ value: 0.6, commandName: "Rasterizando" });
 
-    // 4) Rasterizar y aplicar la máscara
+    // 4) Liberar las capas de trabajo (el mapa ya está en la máscara), rasterizar y aplicar la máscara
     await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
+    try {
+      await bp({ _obj: "delete", _target: [layerById(L.mapGroup), layerById(L.shirt)] });
+    } catch (e) { console.log("No se pudieron liberar las capas de trabajo:", e); }
     await bp([
       { _obj: "rasterizeLayer", _target: [layerById(L.art)] },
       { _obj: "delete", _target: [channel("mask")], apply: true }
@@ -1184,6 +1200,7 @@ async function applyPrep(s) {
     const name = baseName(work.title).replace(/ - Prep$/, "") + " - Prepped";
     const layer = findLayer(work, L.art);
     layer.name = name;
+    ctx.reportProgress({ value: 0.85, commandName: "Creando documento final" });
     const out = await app.documents.add({
       width: work.width, height: work.height, resolution: work.resolution,
       mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name
@@ -1470,8 +1487,10 @@ const INCH = { in: 1, cm: 2.54, mm: 25.4 };
 const toPx = (value, unit) => Math.round(value * RES / INCH[unit]);
 const fromPx = (px, unit) => Math.round((px / RES) * INCH[unit] * 1000) / 1000;
 const lpiToLpc = lpi => lpi / 2.54;
+// LPI más cercano cuya celda mide un número entero de píxeles a 300 ppi
+const wholeCellLpi = lpi => Math.round((RES / Math.max(1, Math.round(RES / lpi))) * 10) / 10;
 
-module.exports = { RES, INCH, toPx, fromPx, lpiToLpc };
+module.exports = { RES, INCH, toPx, fromPx, lpiToLpc, wholeCellLpi };
 
 };
 defs["src/util.js"] = function (module, exports, require) {

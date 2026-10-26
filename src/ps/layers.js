@@ -3,29 +3,26 @@ const { app } = require("photoshop");
 const { storage } = require("uxp");
 const { TILE_PX, state } = require("../state");
 const {
-  bp, px, pct, deg, rgb, layerById, targetLayer, selectLayer, lastLayerId
+  bp, bpThenId, px, pct, deg, rgb, layerById, targetLayer, selectLayer
 } = require("./bp");
 
 async function makeSolid(name, color, mode = "normal") {
-  await bp({ _obj: "make", _target: [{ _ref: "contentLayer" }],
+  return bpThenId({ _obj: "make", _target: [{ _ref: "contentLayer" }],
     using: { _obj: "contentLayer", name, mode: { _enum: "blendMode", _value: mode },
              type: { _obj: "solidColorLayer", color: rgb(color) } } });
-  return lastLayerId();
 }
 
 async function makeHueSatDesat(name) {
-  await bp({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+  return bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
     using: { _obj: "adjustmentLayer", name,
       type: { _obj: "hueSaturation", presetKind: { _enum: "presetKindType", _value: "presetKindCustom" },
               colorize: false,
               adjustment: [{ _obj: "hueSatAdjustmentV2", hue: 0, saturation: -100, lightness: 0 }] } } });
-  return lastLayerId();
 }
 
 async function makeThreshold(name, level = 128) {
-  await bp({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+  return bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
     using: { _obj: "adjustmentLayer", name, type: { _obj: "thresholdClassEvent", level } } });
-  return lastLayerId();
 }
 
 async function setLevels(id, { black, gamma, white, outBlack, outWhite }) {
@@ -37,10 +34,9 @@ async function setLevels(id, { black, gamma, white, outBlack, outWhite }) {
 }
 
 async function makeLevels(name, s) {
-  await bp({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
+  const id = await bpThenId({ _obj: "make", _target: [{ _ref: "adjustmentLayer" }],
     using: { _obj: "adjustmentLayer", name, type: { _obj: "levels",
       presetKind: { _enum: "presetKindType", _value: "presetKindDefault" } } } });
-  const id = await lastLayerId();
   await setLevels(id, s);
   return id;
 }
@@ -111,10 +107,9 @@ async function makeHalftoneLayer(type, lpi, angle) {
   const { name, id } = await ensurePattern(type);
   const res = app.activeDocument.resolution;
   const pattern = id ? { _obj: "pattern", name, ID: id } : { _obj: "pattern", name };
-  await bp({ _obj: "make", _target: [{ _ref: "contentLayer" }],
+  const layerId = await bpThenId({ _obj: "make", _target: [{ _ref: "contentLayer" }],
     using: { _obj: "contentLayer", name: "HT PATTERN",
       type: { _obj: "patternLayer", pattern, scale: pct(patternScale(lpi, res)), angle: deg(angle) } } }); // 🔍
-  const layerId = await lastLayerId();
   await bp({ _obj: "set", _target: [layerById(layerId)],
     to: { _obj: "layer", mode: { _enum: "blendMode", _value: "hardMix" }, fillOpacity: pct(100) } });
   return layerId;
