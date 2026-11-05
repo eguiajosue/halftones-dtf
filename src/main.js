@@ -411,7 +411,7 @@ function bindUI() {
     setSeg("segCleanup", "value", S.cleanup);
   }));
   $("chkDefringe").addEventListener("change", () => { S.defringe = $("chkDefringe").checked; });
-  $("chkNativeFinal").addEventListener("change", () => { S.nativeFinal = $("chkNativeFinal").checked; });
+  $("chkNativeFinal").addEventListener("change", () => { S.nativeFinal = $("chkNativeFinal").checked; touch("mask"); });
 
   // Presets
   $("btnPresetSave").addEventListener("click", async () => {
@@ -468,3 +468,4 @@ window.addEventListener("error", e => status(`Error: ${e.message}`));
 window.addEventListener("unhandledrejection", e => status(`Error: ${e.reason && e.reason.message ? e.reason.message : e.reason}`));
 
 main().catch(e => { console.log("Halftones DTF init:", e); status(e.message); });
+

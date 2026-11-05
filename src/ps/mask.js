@@ -3,6 +3,7 @@
 // máscara de capa desde ella (conserva los grises). Agrupado en pocas llamadas para ir rápido en vivo.
 const { state } = require("../state");
 const { bp, layerById, channel } = require("./bp");
+const { nativeScreenMask } = require("./screen");
 const { previewDescs, vis } = require("./preview");
 
 const SELECTION = { _ref: "channel", _property: "selection" };
@@ -31,6 +32,7 @@ async function refreshMask(s = state.settings) {
               { _obj: "set", _target: [SELECTION], to: { _enum: "ordinal", _value: "none" } },
               { _obj: "select", _target: [channel("RGB")], makeVisible: false },
               ...previewDescs(state.previewMode)]);
+    if (s.nativeFinal && s.halftone) await nativeScreenMask(s);
   } else {
     // Sin knockout: todo opaco
     await bp(parts);
@@ -42,3 +44,4 @@ async function refreshMask(s = state.settings) {
 }
 
 module.exports = { refreshMask };
+

@@ -6,7 +6,6 @@ const {
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
 const { setPreviewMode } = require("./preview");
-const { nativeScreenMask } = require("./screen");
 
 const CANCELLED = "CANCELLED";
 
@@ -153,12 +152,8 @@ async function applyPrep(s) {
     const L = state.layers;
     ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
 
-    // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
+    // 1) Mismo cálculo de máscara que en la vista previa
     await refreshMask(s);
-    if (s.nativeFinal && s.halftone && s.knockout) {
-      try { await nativeScreenMask(s); }
-      catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
-    }
     checkCancel(ctx);
 
     await selectLayer(L.art);
@@ -205,3 +200,4 @@ async function applyPrep(s) {
 }
 
 module.exports = { runPrep, applyPrep, cancelPrep, getWorkDoc };
+

@@ -4,7 +4,7 @@ const DEFAULTS = {
   lpi: 30, angle: 33, htType: "ROUND", halftone: true, knockout: true,
   knockoutColor: { r: 0, g: 0, b: 0 }, shirt: { r: 0, g: 0, b: 0 }, linked: true,
   black: 7, gamma: 2.0, white: 100, outBlack: 0, outWhite: 255, shadow: 0,
-  cleanup: "standard", defringe: false, nativeFinal: false
+  cleanup: "none", defringe: false, nativeFinal: true
 };
 
 const HT_TYPES = ["ROUND", "LINE", "DIAMOND", "ELLIPSE"];
@@ -30,3 +30,4 @@ function resetState() {
 }
 
 module.exports = { TILE_PX, DEFAULTS, HT_TYPES, CLEANUPS, state, resetState };
+
