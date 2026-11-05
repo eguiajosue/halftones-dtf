@@ -432,7 +432,7 @@ function bindUI() {
     setSeg("segCleanup", "value", S.cleanup);
   }));
   $("chkDefringe").addEventListener("change", () => { S.defringe = $("chkDefringe").checked; });
-  $("chkNativeFinal").addEventListener("change", () => { S.nativeFinal = $("chkNativeFinal").checked; });
+  $("chkNativeFinal").addEventListener("change", () => { S.nativeFinal = $("chkNativeFinal").checked; touch("mask"); });
 
   // Presets
   $("btnPresetSave").addEventListener("click", async () => {
@@ -489,6 +489,7 @@ window.addEventListener("error", e => status(`Error: ${e.message}`));
 window.addEventListener("unhandledrejection", e => status(`Error: ${e.reason && e.reason.message ? e.reason.message : e.reason}`));
 
 main().catch(e => { console.log("Halftones DTF init:", e); status(e.message); });
+
 
 };
 defs["src/presets.js"] = function (module, exports, require) {
@@ -551,6 +552,7 @@ async function remove(name) {
 }
 
 module.exports = { list, load, save, remove };
+
 
 };
 defs["src/ps/bp.js"] = function (module, exports, require) {
@@ -624,6 +626,7 @@ module.exports = {
   bp, modal, selectLayer, setVisible, lastLayerId, findLayer, baseName
 };
 
+
 };
 defs["src/ps/events.js"] = function (module, exports, require) {
 const { action, app } = require("photoshop");
@@ -653,6 +656,7 @@ function init(handlers) {
 }
 
 module.exports = { init };
+
 
 };
 defs["src/ps/layers.js"] = function (module, exports, require) {
@@ -794,6 +798,7 @@ module.exports = {
   makeHalftoneLayer, setHalftoneParams, setShadowBoost, applyShadowBoost
 };
 
+
 };
 defs["src/ps/live.js"] = function (module, exports, require) {
 const { app } = require("photoshop");
@@ -845,6 +850,7 @@ function sync(s, kinds) {
 
 module.exports = { validateState, sync, ALL_KINDS: ["shirt", "ko", "levels", "shadow", "htType", "mask"] };
 
+
 };
 defs["src/ps/mask.js"] = function (module, exports, require) {
 // Recalcula la máscara de ART como la composición de MAP GROUP.
@@ -852,6 +858,7 @@ defs["src/ps/mask.js"] = function (module, exports, require) {
 // máscara de capa desde ella (conserva los grises). Agrupado en pocas llamadas para ir rápido en vivo.
 const { state } = require("../state");
 const { bp, layerById, channel } = require("./bp");
+const { nativeScreenMask } = require("./screen");
 const { previewDescs, vis } = require("./preview");
 
 const SELECTION = { _ref: "channel", _property: "selection" };
@@ -880,6 +887,7 @@ async function refreshMask(s = state.settings) {
               { _obj: "set", _target: [SELECTION], to: { _enum: "ordinal", _value: "none" } },
               { _obj: "select", _target: [channel("RGB")], makeVisible: false },
               ...previewDescs(state.previewMode)]);
+    if (s.nativeFinal && s.halftone) await nativeScreenMask(s);
   } else {
     // Sin knockout: todo opaco
     await bp(parts);
@@ -892,6 +900,7 @@ async function refreshMask(s = state.settings) {
 
 module.exports = { refreshMask };
 
+
 };
 defs["src/ps/pipeline.js"] = function (module, exports, require) {
 const { app, constants } = require("photoshop");
@@ -902,7 +911,6 @@ const {
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
 const { setPreviewMode } = require("./preview");
-const { nativeScreenMask } = require("./screen");
 
 const CANCELLED = "CANCELLED";
 
@@ -1049,12 +1057,8 @@ async function applyPrep(s) {
     const L = state.layers;
     ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
 
-    // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
+    // 1) Mismo cálculo de máscara que en la vista previa
     await refreshMask(s);
-    if (s.nativeFinal && s.halftone && s.knockout) {
-      try { await nativeScreenMask(s); }
-      catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
-    }
     checkCancel(ctx);
 
     await selectLayer(L.art);
@@ -1102,10 +1106,11 @@ async function applyPrep(s) {
 
 module.exports = { runPrep, applyPrep, cancelPrep, getWorkDoc };
 
+
 };
 defs["src/ps/preview.js"] = function (module, exports, require) {
 const { state } = require("../state");
-const { bp, layerById } = require("./bp");
+const { bp, layerById, channel } = require("./bp");
 
 const vis = (id, on) => ({ _obj: on ? "show" : "hide", null: [layerById(id)] });
 const maskOn = (id, on) => ({ _obj: "set", _target: [layerById(id)], to: { _obj: "layer", userMaskEnabled: on } });
@@ -1113,10 +1118,21 @@ const maskOn = (id, on) => ({ _obj: "set", _target: [layerById(id)], to: { _obj:
 // Descriptores de cada vista (Original / Prenda / Alfa / Máscara), para enviarlos en un solo batchPlay
 function previewDescs(mode) {
   const L = state.layers;
+  if (mode !== "mask") return [
+    { _obj: "select", _target: [channel("RGB")], makeVisible: false },
+    ...imagePreviewDescs(mode)
+  ];
+  return imagePreviewDescs(mode);
+}
+
+function imagePreviewDescs(mode) {
+  const L = state.layers;
   switch (mode) {
     case "original": return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, false), vis(L.shirt, false)];
     case "alpha":    return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, false)];
-    case "mask":     return [vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true)];
+    case "mask": return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, false),
+      { _obj: "select", _target: [layerById(L.art)], makeVisible: false },
+      { _obj: "select", _target: [channel("mask")], makeVisible: true }];
     default:         return [vis(L.mapGroup, false), vis(L.art, true), maskOn(L.art, true), vis(L.shirt, true)];
   }
 }
@@ -1130,13 +1146,16 @@ const restorePreviewVisibility = () => setPreviewMode(state.previewMode);
 
 module.exports = { setPreviewMode, restorePreviewVisibility, previewDescs, vis };
 
+
 };
 defs["src/ps/screen.js"] = function (module, exports, require) {
 // Método 2 (opcional): trama final con el motor nativo Imagen > Modo > Mapa de bits > Trama de semitonos.
 // Solo se usa en Aplicar. Toda la imagen se procesa dentro de Photoshop.
-const { app } = require("photoshop");
+const { app, constants } = require("photoshop");
 const { state } = require("../state");
-const { bp, layerById, selectLayer, channel, setVisible, docById } = require("./bp");
+const { bp, layerById, selectLayer, channel, docById } = require("./bp");
+
+const { previewDescs, vis } = require("./preview");
 
 const SHAPES = { ROUND: "round", LINE: "line", DIAMOND: "diamond", ELLIPSE: "ellipse" };
 
@@ -1144,40 +1163,48 @@ async function nativeScreenMask({ lpi, angle, htType }) {
   const work = app.activeDocument;
   const L = state.layers;
 
-  // 1) Composición de MAP GROUP sin la capa de motivo, a un documento temporal
-  await setVisible(L.halftone, false);
-  await bp([{ _obj: "hide", null: [layerById(L.art), layerById(L.shirt)] },
-            { _obj: "show", null: [layerById(L.mapGroup)] }]);
-  await bp({ _obj: "duplicate", _target: [{ _ref: "document", _enum: "ordinal", _value: "targetEnum" }],
-             name: "__ht_tmp", merged: true });                                                    // 🔍
-  const tmp = app.activeDocument;
-
-  // 2) Escala de grises -> Mapa de bits (trama de semitonos) -> Escala de grises
-  await bp([
-    { _obj: "convertMode", to: { _class: "grayscaleMode" } },
-    { _obj: "convertMode", to: { _obj: "bitmapMode",
-        resolution: { _unit: "densityUnit", _value: tmp.resolution },
-        method:     { _enum: "method", _value: "halftoneScreen" },
-        frequency:  { _unit: "densityUnit", _value: lpi },
-        angle:      { _unit: "angleUnit",   _value: angle },
-        shape:      { _enum: "shape", _value: SHAPES[htType] || "round" } } },                    // 🔍
-    { _obj: "convertMode", to: { _class: "grayscaleMode" }, ratio: 1 }                            // 🔍
-  ]);
-
-  // 3) Aplicar imagen desde el documento temporal a la máscara de ART (sin portapapeles)
-  app.activeDocument = work;
-  await selectLayer(L.art);
-  await bp([
-    { _obj: "select", _target: [channel("mask")], makeVisible: false },
-    { _obj: "applyImageEvent", with: { _obj: "calculation",
-        to: [channel("gray"), { _ref: "layer", _name: "Background" }, docById(tmp.id)],
-        calculation: { _enum: "calculationType", _value: "normal" } } }                           // 🔍
-  ]);
-  await tmp.closeWithoutSaving();
-  app.activeDocument = work;
-  await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
-  await bp({ _obj: "hide", null: [layerById(L.mapGroup)] });
-  await setVisible(L.halftone, true);
+  let tmp = null;
+  // Bound temporary memory while giving small dots subpixel edge coverage.
+  const width = work.width;
+  const height = work.height;
+  const factor = Math.max(1, Math.min(4, Math.floor(Math.sqrt(64000000 / (width * height)))));
+  try {
+    await bp([vis(L.halftone, false), vis(L.threshold, false),
+      vis(L.art, false), vis(L.shirt, false), vis(L.mapGroup, true)]);
+    await bp({ _obj: "duplicate", _target: [{ _ref: "document", _enum: "ordinal", _value: "targetEnum" }],
+      name: "__ht_tmp", merged: true });
+    tmp = app.activeDocument;
+    await bp([
+      { _obj: "convertMode", to: { _class: "grayscaleMode" } },
+      { _obj: "convertMode", to: { _obj: "bitmapMode",
+        resolution: { _unit: "densityUnit", _value: work.resolution * factor },
+        method: { _enum: "method", _value: "halftoneScreen" },
+        frequency: { _unit: "densityUnit", _value: lpi },
+        angle: { _unit: "angleUnit", _value: angle },
+        shape: { _enum: "shape", _value: SHAPES[htType] || "round" } } },
+      { _obj: "convertMode", to: { _class: "grayscaleMode" }, ratio: 1 }
+    ]);
+    if (factor > 1) {
+      await tmp.resizeImage(width, height, work.resolution, constants.ResampleMethod.BICUBIC);
+    }
+    app.activeDocument = work;
+    await selectLayer(L.art);
+    await bp([
+      { _obj: "select", _target: [channel("mask")], makeVisible: false },
+      { _obj: "applyImageEvent", with: { _obj: "calculation",
+        to: [channel("gray"), docById(tmp.id)],
+        calculation: { _enum: "calculationType", _value: "normal" } } }
+    ]);
+  } finally {
+    try {
+      if (tmp) await tmp.closeWithoutSaving();
+    } finally {
+      app.activeDocument = work;
+      await bp([vis(L.halftone, true),
+        { _obj: "select", _target: [channel("RGB")], makeVisible: false },
+        ...previewDescs(state.previewMode)]);
+    }
+  }
 }
 
 module.exports = { nativeScreenMask };
@@ -1190,7 +1217,7 @@ const DEFAULTS = {
   lpi: 30, angle: 33, htType: "ROUND", halftone: true, knockout: true,
   knockoutColor: { r: 0, g: 0, b: 0 }, shirt: { r: 0, g: 0, b: 0 }, linked: true,
   black: 7, gamma: 2.0, white: 100, outBlack: 0, outWhite: 255, shadow: 0,
-  cleanup: "standard", defringe: false, nativeFinal: false
+  cleanup: "none", defringe: false, nativeFinal: true
 };
 
 const HT_TYPES = ["ROUND", "LINE", "DIAMOND", "ELLIPSE"];
@@ -1217,6 +1244,7 @@ function resetState() {
 
 module.exports = { TILE_PX, DEFAULTS, HT_TYPES, CLEANUPS, state, resetState };
 
+
 };
 defs["src/ui/colorPicker.js"] = function (module, exports, require) {
 const { action, core } = require("photoshop");
@@ -1237,6 +1265,7 @@ async function pickColor(initial) {
 const toCss = c => `rgb(${c.r},${c.g},${c.b})`;
 
 module.exports = { pickColor, toCss };
+
 
 };
 defs["src/ui/levelsSlider.js"] = function (module, exports, require) {
@@ -1348,6 +1377,7 @@ const createValueSlider = (root, key, { min, max, stepBy = 1 }, onChange) => cre
 
 module.exports = { createInputSlider, createOutputSlider, createValueSlider, constrainIn, constrainOut };
 
+
 };
 defs["src/ui/units.js"] = function (module, exports, require) {
 const RES = 300;                       // ppi de trabajo
@@ -1358,6 +1388,7 @@ const fromPx = (px, unit) => Math.round((px / RES) * INCH[unit] * 1000) / 1000;
 const lpiToLpc = lpi => lpi / 2.54;
 
 module.exports = { RES, INCH, toPx, fromPx, lpiToLpc };
+
 
 };
 defs["src/util.js"] = function (module, exports, require) {
@@ -1394,6 +1425,7 @@ function createQueue() {
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 module.exports = { debounce, createQueue, clamp };
+
 
 };
   try {
