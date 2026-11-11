@@ -48,6 +48,10 @@ async function makeLevels(name, s) {
 const setSolid = (id, c) => bp({ _obj: "set", _target: [{ _ref: "contentLayer", _id: id }],
   to: { _obj: "solidColorLayer", color: rgb(c) } });
 
+// Varios colores sólidos en un solo batchPlay: pares [id, color]
+const setSolids = pairs => bp(pairs.map(([id, c]) => ({ _obj: "set", _target: [{ _ref: "contentLayer", _id: id }],
+  to: { _obj: "solidColorLayer", color: rgb(c) } })));
+
 // ---- Semitono -------------------------------------------------------------
 
 const definedPatterns = new Map();   // nombre -> ID (o null) definido en esta sesión
@@ -132,6 +136,6 @@ async function setShadowBoost(amount) {
 }
 
 module.exports = {
-  makeSolid, makeHueSatDesat, makeThreshold, makeLevels, setLevels, setSolid,
+  makeSolid, makeHueSatDesat, makeThreshold, makeLevels, setLevels, setSolid, setSolids,
   makeHalftoneLayer, setHalftoneParams, setShadowBoost, applyShadowBoost
 };

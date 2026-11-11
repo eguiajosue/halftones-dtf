@@ -156,6 +156,16 @@ async function pump() {
   }
 }
 
+// Realce de sombras con espera (250 ms sin cambios). flushShadow() lo aplica ya (Aplicar) y cancelShadow() lo descarta.
+let shadowPending = false;
+const shadowTimer = debounce(() => { shadowPending = false; touch("shadow"); }, 250);
+function touchShadowSoon() { shadowPending = true; shadowTimer(); }
+function flushShadow() {
+  if (!shadowPending) return;
+  shadowTimer.cancel(); shadowPending = false; touch("shadow");
+}
+function cancelShadow() { shadowTimer.cancel(); shadowPending = false; }
+
 // ---------- sincronización ajustes -> UI ----------
 let sIn, sOut, sShadow, sLpi, sAngle;
 
@@ -298,6 +308,7 @@ async function onApply() {
   message("");
   setDisabled($("btnApply"), true);
   try {
+    flushShadow();
     while (pumping) await new Promise(r => setTimeout(r, 50));   // terminar ajustes pendientes
     await pipeline.applyPrep(S);
     resetToIdle();
@@ -310,6 +321,7 @@ async function onApply() {
 }
 
 async function onCancel() {
+  cancelShadow();
   dirty.clear();
   try { await pipeline.cancelPrep(); } catch (e) { console.log(e); }
   resetToIdle();
@@ -376,8 +388,9 @@ function bindUI() {
     $("inOutBlack").value = v.outBlack; $("inOutWhite").value = v.outWhite;
     touch("levels");
   });
+  // Sombras/Iluminaciones es el paso más caro (filtro sobre 2 objetos inteligentes): se agrupa mientras se arrastra
   sShadow = sliders.createValueSlider($("sldShadow"), "shadow", { min: 0, max: 100 }, v => {
-    S.shadow = v.shadow; $("inShadow").value = v.shadow; touch("shadow");
+    S.shadow = v.shadow; $("inShadow").value = v.shadow; touchShadowSoon();
   });
   const levelField = (id, fn, opts) => bindNumber($(id), v => {
     if (Number.isFinite(v)) { fn(v); touch("levels"); }
@@ -457,7 +470,7 @@ async function main() {
   await step("tamaño", () => updateCurrentPrintSize(true));
   await step("eventos", () => events.init({
     onIdleChange: () => updateCurrentPrintSize(),
-    onWorkClosed: () => { message("El documento de trabajo se cerró.", "warn"); resetToIdle(); },
+    onWorkClosed: () => { cancelShadow(); message("El documento de trabajo se cerró.", "warn"); resetToIdle(); },
     onLock: lock,
     onUnlock: unlock
   }));

@@ -6,11 +6,21 @@ const { refreshMask } = require("./mask");
 const { setPreviewMode } = require("./preview");
 
 // Los IDs pueden desaparecer (deshacer, borrado manual): validar antes de operar.
+// Se recorre el árbol de capas una sola vez (cada acceso a .layers es una llamada al host).
+function collectIds(container, ids) {
+  for (const l of container.layers) {
+    ids.add(l.id);
+    if (l.layers && l.layers.length) collectIds(l, ids);
+  }
+  return ids;
+}
+
 function validateState() {
   const doc = app.activeDocument;
   if (!doc || doc.id !== state.workDocId) throw new Error("WRONG_DOC");
+  const ids = collectIds(doc, new Set());
   for (const id of Object.values(state.layers)) {
-    if (!findLayer(doc, id)) throw new Error("MISSING_LAYERS");
+    if (!ids.has(id)) throw new Error("MISSING_LAYERS");
   }
 }
 
@@ -34,14 +44,26 @@ function sync(s, kinds) {
     validateState();
     const L = state.layers;
     if (kinds.has("shirt")) await L_.setSolid(L.shirt, s.shirt);
-    if (kinds.has("ko")) { await L_.setSolid(L.ko, s.knockoutColor); await L_.setSolid(L.mapBg, s.knockoutColor); }
+    if (kinds.has("ko")) await L_.setSolids([[L.ko, s.knockoutColor], [L.mapBg, s.knockoutColor]]);
     if (kinds.has("levels")) await L_.setLevels(L.levels, s);
     if (kinds.has("shadow")) await L_.setShadowBoost(s.shadow);
     if (kinds.has("htType")) await replaceHalftone(s);
     else if (kinds.has("ht")) await L_.setHalftoneParams(L.halftone, s.lpi, s.angle);
 
-    if (MASK_KINDS.some(k => kinds.has(k))) await refreshMask(s);   // restaura también la vista
-    else if (kinds.has("preview")) await setPreviewMode(state.previewMode);
+    // La máscara de ART solo se ve en las vistas Prenda/Alfa. En Máscara (MAP GROUP ya es la composición viva)
+    // y Original se salta el recálculo y se marca como pendiente. "mask" y "htType" cambian visibilidades:
+    // esos siempre recalculan.
+    const usesMask = state.previewMode === "shirt" || state.previewMode === "alpha";
+    const mustRefresh = kinds.has("mask") || kinds.has("htType");
+    let refreshed = false;
+    if (MASK_KINDS.some(k => kinds.has(k))) {
+      if (usesMask || mustRefresh) { await refreshMask(s); state.maskStale = false; refreshed = true; }   // restaura también la vista
+      else state.maskStale = true;
+    }
+    if (!refreshed && kinds.has("preview")) {
+      if (state.maskStale && usesMask) { await refreshMask(s); state.maskStale = false; }
+      else await setPreviewMode(state.previewMode);
+    }
   }, { history: true });
 }
 
