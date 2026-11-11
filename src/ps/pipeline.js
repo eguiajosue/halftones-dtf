@@ -1,5 +1,6 @@
 const { app, constants } = require("photoshop");
-const { state, resetState } = require("../state");
+const { state, resetState, HT_TYPES } = require("../state");
+const { dimPx } = require("../util");
 const {
   bp, modal, px, validId, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
 } = require("./bp");
@@ -43,6 +44,11 @@ async function runPrep(s) {
 
   try {
     await modal("Open-DTF: Preparar", async (ctx) => {
+      // 0) Definir los 4 motivos de semitono ahora (una vez por sesión), no a mitad de un ajuste en vivo
+      at("motivos de semitono");
+      ctx.reportProgress({ value: 0.02, commandName: "Preparando motivos de semitono" });
+      for (const t of HT_TYPES) await L_.ensurePattern(t);
+
       // 1) Duplicar (documento de trabajo); el original nunca se toca
       at("duplicar documento");
       work = await src.duplicate(`${baseName(src.title)} - Prep`);
@@ -55,6 +61,14 @@ async function runPrep(s) {
       const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Open-DTF: Preparar" });
       try {
         ctx.reportProgress({ value: 0.1, commandName: "Duplicando documento" });
+
+        // 2a) Si se reduce, aplanar antes: se remuestrea una sola capa. Si se amplía NO: texto, vectores y
+        //     objetos inteligentes se re-renderizan nítidos al escalar y aplanarlos antes los dejaría borrosos.
+        at("aplanar capas");
+        if (work.layers.length > 1 && s.widthPx <= dimPx(work.width) && s.heightPx <= dimPx(work.height)) {
+          try { await work.mergeVisibleLayers(); }                                                  // 🔍
+          catch (e) { console.log("No se pudo aplanar antes de redimensionar:", e); }
+        }
 
         // 2) Redimensionar a 300 ppi y tamaño objetivo
         at(`redimensionar (${s.widthPx}x${s.heightPx})`);
@@ -206,12 +220,22 @@ async function applyPrep(s) {
     const name = baseName(work.title).replace(/ - Prep$/, "") + " - Prepped";
     const layer = findLayer(work, L.art);
     layer.name = name;
-    const out = await app.documents.add({
-      width: work.width, height: work.height, resolution: work.resolution,
-      mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name
-    });
-    const copy = await layer.duplicate(out);                                                        // 🔍
-    for (const l of [...out.layers]) if (l.id !== copy.id) await l.delete();
+    // Camino rápido: quitar SHIRT COLOR y MAP GROUP y duplicar el documento (una copia de píxeles, sin
+    // crear antes un documento vacío). Si algo no cuadra, se usa el camino clásico.
+    let out = null;
+    try {
+      for (const id of [L.shirt, L.mapGroup]) { const l = findLayer(work, id); if (l) await l.delete(); }
+      out = await work.duplicate(name);                                                              // 🔍
+      if (out.layers.length !== 1) { await out.closeWithoutSaving(); app.activeDocument = work; out = null; }
+    } catch (e) { console.log("Duplicar documento falló, camino clásico:", e); out = null; }
+    if (!out) {
+      out = await app.documents.add({
+        width: work.width, height: work.height, resolution: work.resolution,
+        mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name
+      });
+      const copy = await layer.duplicate(out);                                                      // 🔍
+      for (const l of [...out.layers]) if (l.id !== copy.id) await l.delete();
+    }
     await work.closeWithoutSaving();
     app.activeDocument = out;
     ctx.reportProgress({ value: 1, commandName: "Listo" });

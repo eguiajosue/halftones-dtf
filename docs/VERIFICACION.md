@@ -26,3 +26,9 @@ El plugin se escribió sin poder ejecutarlo en Photoshop. Antes de distribuirlo,
 - [ ] Aplicar no recalcula la máscara si ya está al día (vista Prenda/Alfa); en vistas Máscara/Original sí.
 - [ ] Realce de sombras en un solo batch (`select` + `delete filterFX` + `adaptCorrect` por capa); si el batch falla, cae al camino paso a paso.
 - [ ] Los `moveBelow/moveAbove` del DOM se mantienen: no hay descriptor `move` por ID validado para sustituirlos.
+
+## Optimización de rendimiento — descriptores nuevos a validar (paso 4)
+- [ ] Cambiar el tipo de semitono con `set` sobre la capa existente (`layers.js › setHalftonePattern`) y confirmación con `get` de la capa (el nombre `HT <TIPO>` debe aparecer). Si no se confirma, el plugin recuerda `state.setPatternOk = false` y vuelve a crear/mover/borrar la capa. Comprobar visualmente que el motivo cambia de verdad.
+- [ ] Los 4 motivos se definen al pulsar Preparar (`pipeline.js`), una vez por sesión; revisar que no queden duplicados en el panel Motivos.
+- [ ] `Document.mergeVisibleLayers()` antes de redimensionar, solo al reducir. Comprobar transparencia y que el resultado coincide con el flujo anterior; al ampliar no se aplana (texto/vectores nítidos).
+- [ ] Aplicar: `work.duplicate(name)` tras borrar SHIRT COLOR y MAP GROUP en lugar de `documents.add` + `layer.duplicate`. Revisar perfil ICC, transparencia, resolución y nombre «- Prepped»; si el resultado no tiene 1 capa, cae al camino clásico.

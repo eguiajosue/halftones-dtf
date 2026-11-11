@@ -27,6 +27,15 @@ function validateState() {
 async function replaceHalftone(s) {
   const L = state.layers;
   const doc = app.activeDocument;
+  // Camino rápido: cambiar el motivo de la capa existente. Si Photoshop no lo acepta (o no lo confirma),
+  // se recuerda y se usa el reemplazo clásico.
+  if (state.setPatternOk !== false) {
+    let ok = false;
+    try { ok = await L_.setHalftonePattern(L.halftone, s.htType, s.lpi, s.angle); }
+    catch (e) { console.log("Motivo en sitio no disponible:", e); }
+    state.setPatternOk = ok;
+    if (ok) return;
+  }
   const old = findLayer(doc, L.halftone);
   await selectLayer(L.threshold);
   const id = await L_.makeHalftoneLayer(s.htType, s.lpi, s.angle);

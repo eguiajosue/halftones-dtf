@@ -1,6 +1,6 @@
 const { app } = require("photoshop");
 const { state, DEFAULTS, resetState } = require("./state");
-const { debounce, clamp } = require("./util");
+const { debounce, clamp, dimPx } = require("./util");
 const { fromPx, toPx, lpiToLpc } = require("./ui/units");
 const { pickColor, toCss } = require("./ui/colorPicker");
 const sliders = require("./ui/levelsSlider");
@@ -29,7 +29,6 @@ const setHidden = (el, hidden) => setClass(el, "hidden", hidden);
 const setDisabled = (el, on) => (on ? el.setAttribute("disabled", "") : el.removeAttribute("disabled"));
 const pickerIndex = el => (el.selectedIndex >= 0 ? el.selectedIndex : 0);
 const num = (el, d) => { const v = parseFloat(String(el.value).replace(",", ".")); return Number.isFinite(v) ? v : d; };
-const dimPx = v => (typeof v === "number" ? v : v && typeof v.as === "function" ? v.as("px") : Number(v && v.value !== undefined ? v.value : v));
 function currentDoc() { try { return app.activeDocument; } catch (e) { return null; } }
 
 // ---------- mensajes ----------

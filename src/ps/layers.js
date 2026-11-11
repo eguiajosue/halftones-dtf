@@ -106,6 +106,18 @@ async function setHalftoneParams(id, lpi, angle) {
     to: { _obj: "patternLayer", scale: pct(patternScale(lpi, res)), angle: deg(angle) } });   // 🔍
 }
 
+// Cambia el motivo de una capa de semitono existente sin recrearla. Devuelve true solo si Photoshop
+// confirma el cambio (el nombre del motivo aparece en la capa); si no, el llamador la reemplaza.
+async function setHalftonePattern(id, type, lpi, angle) {
+  const { name, id: pid } = await ensurePattern(type);
+  const res = app.activeDocument.resolution;
+  const pattern = pid ? { _obj: "pattern", name, ID: pid } : { _obj: "pattern", name };
+  await bp({ _obj: "set", _target: [{ _ref: "contentLayer", _id: id }],
+    to: { _obj: "patternLayer", pattern, scale: pct(patternScale(lpi, res)), angle: deg(angle) } });   // 🔍
+  const r = await bp({ _obj: "get", _target: [layerById(id)] });                                      // 🔍
+  return JSON.stringify(r[0]).includes(name);
+}
+
 // ---- Realce de sombras (Sombras/Iluminaciones como filtro inteligente) ------
 
 const selectDesc = id => ({ _obj: "select", _target: [layerById(id)], makeVisible: false });
@@ -150,5 +162,5 @@ async function setShadowBoost(amount) {
 
 module.exports = {
   makeSolid, makeHueSatDesat, makeThreshold, makeLevels, setLevels, setSolid, setSolids,
-  makeHalftoneLayer, setHalftoneParams, setShadowBoost, applyShadowBoost
+  makeHalftoneLayer, setHalftoneParams, setHalftonePattern, ensurePattern, setShadowBoost, applyShadowBoost
 };

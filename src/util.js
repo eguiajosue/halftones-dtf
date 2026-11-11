@@ -30,4 +30,7 @@ function createQueue() {
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-module.exports = { debounce, createQueue, clamp };
+// Dimensión del documento (UnitValue, número u objeto con .value) en píxeles.
+const dimPx = v => (typeof v === "number" ? v : v && typeof v.as === "function" ? v.as("px") : Number(v && v.value !== undefined ? v.value : v));
+
+module.exports = { debounce, createQueue, clamp, dimPx };
