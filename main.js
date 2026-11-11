@@ -21,7 +21,7 @@
 defs["src/main.js"] = function (module, exports, require) {
 const { app } = require("photoshop");
 const { state, DEFAULTS, resetState } = require("./state");
-const { debounce, clamp, dimPx } = require("./util");
+const { debounce, clamp, dimPx, errText } = require("./util");
 const { fromPx, toPx, lpiToLpc } = require("./ui/units");
 const { pickColor, toCss } = require("./ui/colorPicker");
 const sliders = require("./ui/levelsSlider");
@@ -65,7 +65,7 @@ function message(text, kind = "info", ms = 0) {
 const status = text => message(text, "error");
 
 async function fail(e) {
-  const m = e && e.message ? e.message : String(e);
+  const m = errText(e);
   if (m === "WRONG_DOC") return lock("Vuelve al documento de trabajo o pulsa Cancelar.");
   if (m === "MISSING_LAYERS") return message("Las capas de trabajo ya no existen (¿deshiciste algo?). Pulsa Cancelar.", "warn");
   if (m === "CANCELLED") return message("Operación cancelada.", "warn", 3000);
@@ -498,7 +498,7 @@ async function main() {
 
 // Cualquier error no controlado se muestra en el panel (facilita el diagnóstico en Photoshop)
 window.addEventListener("error", e => status(`Error: ${e.message}`));
-window.addEventListener("unhandledrejection", e => status(`Error: ${e.reason && e.reason.message ? e.reason.message : e.reason}`));
+window.addEventListener("unhandledrejection", e => status(`Error: ${errText(e.reason)}`));
 
 main().catch(e => { console.log("Halftones DTF init:", e); status(e.message); });
 
@@ -567,6 +567,7 @@ module.exports = { list, load, save, remove };
 };
 defs["src/ps/bp.js"] = function (module, exports, require) {
 const { action, core, app } = require("photoshop");
+const { errText } = require("../util");
 
 const px  = v => ({ _unit: "pixelsUnit",  _value: v });
 const pct = v => ({ _unit: "percentUnit", _value: v });
@@ -587,7 +588,7 @@ async function bp(descs) {
   try {
     res = await action.batchPlay(list, { modalBehavior: "execute" });
   } catch (e) {
-    throw new Error(`${list.map(d => d._obj).join(",")}: ${e.message}`);
+    throw new Error(`${list.map(d => d._obj).join(",")}: ${errText(e)}`);
   }
   res.forEach((r, i) => {
     if (r && r._obj === "error") throw new Error(`${list[i]._obj}: ${r.message}`);
@@ -605,7 +606,11 @@ async function modal(name, fn, { history = false } = {}) {
     try {
       return await fn(ctx);
     } finally {
-      if (hid !== null) await ctx.hostControl.resumeHistory(hid);
+      // Un fallo aquí no debe tapar el error original de fn()
+      if (hid !== null) {
+        try { await ctx.hostControl.resumeHistory(hid); }
+        catch (re) { console.log(`resumeHistory (${name}):`, re); }
+      }
     }
   }, { commandName: name, interactive: false });
 }
@@ -973,7 +978,7 @@ module.exports = { refreshMask };
 defs["src/ps/pipeline.js"] = function (module, exports, require) {
 const { app, constants } = require("photoshop");
 const { state, resetState, HT_TYPES } = require("../state");
-const { dimPx } = require("../util");
+const { dimPx, errText } = require("../util");
 const {
   bp, modal, px, validId, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
 } = require("./bp");
@@ -1050,11 +1055,14 @@ async function runPrep(s) {
         ctx.reportProgress({ value: 0.25, commandName: "Redimensionando" });
 
         // 3) Aplanar todo en un objeto inteligente "ART"
-        at("objeto inteligente ART");
+        at("objeto inteligente ART: convertir capas");
         await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
+        at("objeto inteligente ART: leer ID");
         const artId = await lastLayerId();
+        at("objeto inteligente ART: renombrar");
         await bp({ _obj: "set", _target: [targetLayer], to: { _obj: "layer", name: "ART" } });
         validId(artId, "ART");
+        at("objeto inteligente ART: buscar capa");
         const artLayer = findLayer(work, artId);
         if (!artLayer) throw new Error("No se encontró la capa ART");
 
@@ -1111,15 +1119,19 @@ async function runPrep(s) {
         await bp({ _obj: "select", _target: [{ _ref: "menuItemClass", _enum: "menuItemType", _value: "fitOnScreen" }] });
         ctx.reportProgress({ value: 1, commandName: "Listo" });
       } finally {
-        await ctx.hostControl.resumeHistory(hid);
+        // Un fallo aquí no debe tapar el error original del paso que falló
+        try { await ctx.hostControl.resumeHistory(hid); }
+        catch (re) { console.log("resumeHistory (Preparar):", re); }
       }
     });
     state.phase = "ACTIVE";
   } catch (e) {
     await discardWork(work);
     resetState();
-    if (e.message === CANCELLED) return false;
-    throw new Error(`${e.message} [paso: ${stage}]`);
+    const msg = errText(e);
+    if (msg === CANCELLED) return false;
+    console.log(`Open-DTF Preparar falló [paso: ${stage}]:`, e);
+    throw new Error(`${msg} [paso: ${stage}]`);
   }
   return true;
 }
@@ -1517,7 +1529,22 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 // Dimensión del documento (UnitValue, número u objeto con .value) en píxeles.
 const dimPx = v => (typeof v === "number" ? v : v && typeof v.as === "function" ? v.as("px") : Number(v && v.value !== undefined ? v.value : v));
 
-module.exports = { debounce, createQueue, clamp, dimPx };
+// Texto legible de cualquier cosa lanzada. Photoshop/UXP a veces rechaza con cadenas, números u
+// objetos sin `message`; sin esto el panel mostraba solo "undefined".
+function errText(e) {
+  if (e === undefined || e === null) return "Error desconocido de Photoshop";
+  if (typeof e === "string") return e || "Error desconocido de Photoshop";
+  if (typeof e === "number") return `Código de error ${e}`;
+  if (e.message) return String(e.message);
+  try {
+    const j = JSON.stringify(e);
+    if (j && j !== "{}") return j;
+  } catch (_) { /* objeto no serializable */ }
+  const s = String(e);
+  return s && s !== "[object Object]" ? s : "Error desconocido de Photoshop";
+}
+
+module.exports = { debounce, createQueue, clamp, dimPx, errText };
 
 };
   try {

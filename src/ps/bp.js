@@ -1,4 +1,5 @@
 const { action, core, app } = require("photoshop");
+const { errText } = require("../util");
 
 const px  = v => ({ _unit: "pixelsUnit",  _value: v });
 const pct = v => ({ _unit: "percentUnit", _value: v });
@@ -19,7 +20,7 @@ async function bp(descs) {
   try {
     res = await action.batchPlay(list, { modalBehavior: "execute" });
   } catch (e) {
-    throw new Error(`${list.map(d => d._obj).join(",")}: ${e.message}`);
+    throw new Error(`${list.map(d => d._obj).join(",")}: ${errText(e)}`);
   }
   res.forEach((r, i) => {
     if (r && r._obj === "error") throw new Error(`${list[i]._obj}: ${r.message}`);
@@ -37,7 +38,11 @@ async function modal(name, fn, { history = false } = {}) {
     try {
       return await fn(ctx);
     } finally {
-      if (hid !== null) await ctx.hostControl.resumeHistory(hid);
+      // Un fallo aquí no debe tapar el error original de fn()
+      if (hid !== null) {
+        try { await ctx.hostControl.resumeHistory(hid); }
+        catch (re) { console.log(`resumeHistory (${name}):`, re); }
+      }
     }
   }, { commandName: name, interactive: false });
 }

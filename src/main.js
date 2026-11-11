@@ -1,6 +1,6 @@
 const { app } = require("photoshop");
 const { state, DEFAULTS, resetState } = require("./state");
-const { debounce, clamp, dimPx } = require("./util");
+const { debounce, clamp, dimPx, errText } = require("./util");
 const { fromPx, toPx, lpiToLpc } = require("./ui/units");
 const { pickColor, toCss } = require("./ui/colorPicker");
 const sliders = require("./ui/levelsSlider");
@@ -44,7 +44,7 @@ function message(text, kind = "info", ms = 0) {
 const status = text => message(text, "error");
 
 async function fail(e) {
-  const m = e && e.message ? e.message : String(e);
+  const m = errText(e);
   if (m === "WRONG_DOC") return lock("Vuelve al documento de trabajo o pulsa Cancelar.");
   if (m === "MISSING_LAYERS") return message("Las capas de trabajo ya no existen (¿deshiciste algo?). Pulsa Cancelar.", "warn");
   if (m === "CANCELLED") return message("Operación cancelada.", "warn", 3000);
@@ -477,6 +477,6 @@ async function main() {
 
 // Cualquier error no controlado se muestra en el panel (facilita el diagnóstico en Photoshop)
 window.addEventListener("error", e => status(`Error: ${e.message}`));
-window.addEventListener("unhandledrejection", e => status(`Error: ${e.reason && e.reason.message ? e.reason.message : e.reason}`));
+window.addEventListener("unhandledrejection", e => status(`Error: ${errText(e.reason)}`));
 
 main().catch(e => { console.log("Halftones DTF init:", e); status(e.message); });

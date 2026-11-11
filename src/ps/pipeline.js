@@ -1,6 +1,6 @@
 const { app, constants } = require("photoshop");
 const { state, resetState, HT_TYPES } = require("../state");
-const { dimPx } = require("../util");
+const { dimPx, errText } = require("../util");
 const {
   bp, modal, px, validId, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
 } = require("./bp");
@@ -77,11 +77,14 @@ async function runPrep(s) {
         ctx.reportProgress({ value: 0.25, commandName: "Redimensionando" });
 
         // 3) Aplanar todo en un objeto inteligente "ART"
-        at("objeto inteligente ART");
+        at("objeto inteligente ART: convertir capas");
         await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
+        at("objeto inteligente ART: leer ID");
         const artId = await lastLayerId();
+        at("objeto inteligente ART: renombrar");
         await bp({ _obj: "set", _target: [targetLayer], to: { _obj: "layer", name: "ART" } });
         validId(artId, "ART");
+        at("objeto inteligente ART: buscar capa");
         const artLayer = findLayer(work, artId);
         if (!artLayer) throw new Error("No se encontró la capa ART");
 
@@ -138,15 +141,19 @@ async function runPrep(s) {
         await bp({ _obj: "select", _target: [{ _ref: "menuItemClass", _enum: "menuItemType", _value: "fitOnScreen" }] });
         ctx.reportProgress({ value: 1, commandName: "Listo" });
       } finally {
-        await ctx.hostControl.resumeHistory(hid);
+        // Un fallo aquí no debe tapar el error original del paso que falló
+        try { await ctx.hostControl.resumeHistory(hid); }
+        catch (re) { console.log("resumeHistory (Preparar):", re); }
       }
     });
     state.phase = "ACTIVE";
   } catch (e) {
     await discardWork(work);
     resetState();
-    if (e.message === CANCELLED) return false;
-    throw new Error(`${e.message} [paso: ${stage}]`);
+    const msg = errText(e);
+    if (msg === CANCELLED) return false;
+    console.log(`Open-DTF Preparar falló [paso: ${stage}]:`, e);
+    throw new Error(`${msg} [paso: ${stage}]`);
   }
   return true;
 }
