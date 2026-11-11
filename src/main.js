@@ -1,6 +1,6 @@
 const { app } = require("photoshop");
 const { state, DEFAULTS, resetState } = require("./state");
-const { debounce, clamp } = require("./util");
+const { debounce, clamp, dimPx } = require("./util");
 const { fromPx, toPx, lpiToLpc } = require("./ui/units");
 const { pickColor, toCss } = require("./ui/colorPicker");
 const sliders = require("./ui/levelsSlider");
@@ -29,7 +29,6 @@ const setHidden = (el, hidden) => setClass(el, "hidden", hidden);
 const setDisabled = (el, on) => (on ? el.setAttribute("disabled", "") : el.removeAttribute("disabled"));
 const pickerIndex = el => (el.selectedIndex >= 0 ? el.selectedIndex : 0);
 const num = (el, d) => { const v = parseFloat(String(el.value).replace(",", ".")); return Number.isFinite(v) ? v : d; };
-const dimPx = v => (typeof v === "number" ? v : v && typeof v.as === "function" ? v.as("px") : Number(v && v.value !== undefined ? v.value : v));
 function currentDoc() { try { return app.activeDocument; } catch (e) { return null; } }
 
 // ---------- mensajes ----------
@@ -155,6 +154,16 @@ async function pump() {
     setHidden($("busy"), true);
   }
 }
+
+// Realce de sombras con espera (250 ms sin cambios). flushShadow() lo aplica ya (Aplicar) y cancelShadow() lo descarta.
+let shadowPending = false;
+const shadowTimer = debounce(() => { shadowPending = false; touch("shadow"); }, 250);
+function touchShadowSoon() { shadowPending = true; shadowTimer(); }
+function flushShadow() {
+  if (!shadowPending) return;
+  shadowTimer.cancel(); shadowPending = false; touch("shadow");
+}
+function cancelShadow() { shadowTimer.cancel(); shadowPending = false; }
 
 // ---------- sincronización ajustes -> UI ----------
 let sIn, sOut, sShadow, sLpi, sAngle;
@@ -298,6 +307,7 @@ async function onApply() {
   message("");
   setDisabled($("btnApply"), true);
   try {
+    flushShadow();
     while (pumping) await new Promise(r => setTimeout(r, 50));   // terminar ajustes pendientes
     await pipeline.applyPrep(S);
     resetToIdle();
@@ -310,6 +320,7 @@ async function onApply() {
 }
 
 async function onCancel() {
+  cancelShadow();
   dirty.clear();
   try { await pipeline.cancelPrep(); } catch (e) { console.log(e); }
   resetToIdle();
@@ -376,8 +387,9 @@ function bindUI() {
     $("inOutBlack").value = v.outBlack; $("inOutWhite").value = v.outWhite;
     touch("levels");
   });
+  // Sombras/Iluminaciones es el paso más caro (filtro sobre 2 objetos inteligentes): se agrupa mientras se arrastra
   sShadow = sliders.createValueSlider($("sldShadow"), "shadow", { min: 0, max: 100 }, v => {
-    S.shadow = v.shadow; $("inShadow").value = v.shadow; touch("shadow");
+    S.shadow = v.shadow; $("inShadow").value = v.shadow; touchShadowSoon();
   });
   const levelField = (id, fn, opts) => bindNumber($(id), v => {
     if (Number.isFinite(v)) { fn(v); touch("levels"); }
@@ -457,7 +469,7 @@ async function main() {
   await step("tamaño", () => updateCurrentPrintSize(true));
   await step("eventos", () => events.init({
     onIdleChange: () => updateCurrentPrintSize(),
-    onWorkClosed: () => { message("El documento de trabajo se cerró.", "warn"); resetToIdle(); },
+    onWorkClosed: () => { cancelShadow(); message("El documento de trabajo se cerró.", "warn"); resetToIdle(); },
     onLock: lock,
     onUnlock: unlock
   }));

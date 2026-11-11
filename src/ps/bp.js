@@ -45,8 +45,10 @@ async function modal(name, fn, { history = false } = {}) {
 const selectLayer = id => bp({ _obj: "select", _target: [layerById(id)], makeVisible: false });
 const setVisible = (id, on) => bp({ _obj: on ? "show" : "hide", null: [layerById(id)] });
 
+const lastLayerDesc = { _obj: "get", _target: [{ _property: "layerID" }, targetLayer] };
+
 async function lastLayerId() {
-  const r = await bp({ _obj: "get", _target: [{ _property: "layerID" }, targetLayer] });
+  const r = await bp(lastLayerDesc);
   return r[0].layerID;
 }
 
@@ -65,5 +67,5 @@ const baseName = title => String(title).replace(/\.[^./\\]+$/, "");
 
 module.exports = {
   px, pct, deg, rgb, validId, layerById, docById, targetLayer, channel,
-  bp, modal, selectLayer, setVisible, lastLayerId, findLayer, baseName
+  bp, modal, selectLayer, setVisible, lastLayerId, lastLayerDesc, findLayer, baseName
 };

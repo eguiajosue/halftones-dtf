@@ -17,7 +17,9 @@ const state = {
   layers: {},             // IDs: art, shirt, mapGroup, mapArt, mapBg, ko, desat, levels, threshold, halftone
   settings: JSON.parse(JSON.stringify(DEFAULTS)),
   previewMode: "shirt",
-  shadowOn: false
+  shadowOn: false,
+  setPatternOk: null,     // null = sin probar; true/false = si cambiar el motivo "en sitio" funciona (se conserva entre documentos)
+  maskStale: false        // true si la máscara de ART no refleja los ajustes (se saltó el recálculo en vistas que no la usan)
 };
 
 function resetState() {
@@ -27,6 +29,7 @@ function resetState() {
   state.layers = {};
   state.previewMode = "shirt";
   state.shadowOn = false;
+  state.maskStale = false;
 }
 
 module.exports = { TILE_PX, DEFAULTS, HT_TYPES, CLEANUPS, state, resetState };

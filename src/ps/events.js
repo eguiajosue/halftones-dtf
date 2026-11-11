@@ -1,11 +1,13 @@
 const { action, app } = require("photoshop");
 const { state } = require("../state");
+const { debounce } = require("../util");
 
 const EVENTS = ["select", "close", "open", "imageSize", "canvasSize", "historyStateChanged"];
 
 // handlers: { onIdleChange(), onWorkClosed(), onLock(msg), onUnlock() }
 function init(handlers) {
-  action.addNotificationListener(EVENTS.map(e => ({ event: e })), (event) => {
+  // Cada ajuste en vivo dispara select/historyStateChanged varias veces: se agrupan en una sola comprobación.
+  const check = debounce((event) => {
     try {
       if (state.phase === "RUNNING") return;
       if (state.phase === "ACTIVE") {
@@ -21,7 +23,8 @@ function init(handlers) {
     } catch (e) {
       console.log("events:", event, e);
     }
-  });
+  }, 100);
+  action.addNotificationListener(EVENTS.map(e => ({ event: e })), event => check(event));
 }
 
 module.exports = { init };

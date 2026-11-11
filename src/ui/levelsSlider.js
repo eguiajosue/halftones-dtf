@@ -45,13 +45,15 @@ function createSlider(root, { min, max, handles, constrain, fill = null, gradien
   }
 
   function apply(h, val) {
+    const before = JSON.stringify(values);
     if (h.kind === "gamma") {
       values.gamma = tToGamma(clamp((val - values.black) / Math.max(1, values.white - values.black), 0, 1));
     } else {
       values[h.key] = constrain(h.key, val, values);
     }
     render();
-    onChange({ ...values });
+    // Sin cambio real (mismo valor tras redondeo/límites): no disparar otra sincronización de Photoshop
+    if (JSON.stringify(values) !== before) onChange({ ...values });
   }
 
   // Clic en la pista: mueve el asa más cercana y empieza a arrastrarla
