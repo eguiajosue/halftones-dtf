@@ -2,7 +2,7 @@ const { app, constants } = require("photoshop");
 const { state, resetState, HT_TYPES } = require("../state");
 const { dimPx, errText } = require("../util");
 const {
-  bp, modal, px, validId, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
+  bp, modal, px, pct, validId, layerById, targetLayer, channel, selectLayer, lastLayerId, findLayer, baseName
 } = require("./bp");
 const L_ = require("./layers");
 const { refreshMask } = require("./mask");
@@ -29,6 +29,11 @@ async function ensure8Bit(work) {
   try {
     await bp({ _obj: "convertMode", depth: 8, merge: false });                                       // 🔍
   } catch (e) { console.log("No se pudo pasar a 8 bits:", e); }
+}
+
+function hasBackground(doc) {
+  try { if (doc.backgroundLayer) return true; } catch (e) { /* propiedad no disponible en esta versión */ }
+  try { return doc.layers.some(l => l.isBackgroundLayer); } catch (e) { return false; }
 }
 
 // ---- Preparar ---------------------------------------------------------------
@@ -77,6 +82,14 @@ async function runPrep(s) {
         ctx.reportProgress({ value: 0.25, commandName: "Redimensionando" });
 
         // 3) Aplanar todo en un objeto inteligente "ART"
+        // "Seleccionar todas las capas" ignora la capa de Fondo: con solo Fondo (JPG/PNG aplanado) el comando
+        // no está disponible, y con Fondo + capas el fondo quedaba fuera de ART. Se pasa a capa normal antes.
+        at("objeto inteligente ART: capa de fondo");
+        if (hasBackground(work)) {
+          await bp({ _obj: "set", _target: [{ _ref: "layer", _property: "background" }],
+                     to: { _obj: "layer", opacity: pct(100), mode: { _enum: "blendMode", _value: "normal" } } });
+        }
+
         at("objeto inteligente ART: convertir capas");
         await bp([{ _obj: "selectAllLayers", _target: [targetLayer] }, { _obj: "newPlacedLayer" }]);   // 🔍
         at("objeto inteligente ART: leer ID");

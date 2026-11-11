@@ -32,3 +32,4 @@ El plugin se escribió sin poder ejecutarlo en Photoshop. Antes de distribuirlo,
 - [ ] Los 4 motivos se definen al pulsar Preparar (`pipeline.js`), una vez por sesión; revisar que no queden duplicados en el panel Motivos.
 - [ ] `Document.mergeVisibleLayers()` antes de redimensionar, solo al reducir. Comprobar transparencia y que el resultado coincide con el flujo anterior; al ampliar no se aplana (texto/vectores nítidos).
 - [ ] Aplicar: `work.duplicate(name)` tras borrar SHIRT COLOR y MAP GROUP en lugar de `documents.add` + `layer.duplicate`. Revisar perfil ICC, transparencia, resolución y nombre «- Prepped»; si el resultado no tiene 1 capa, cae al camino clásico.
+- [ ] Documentos con capa de Fondo (JPG/PNG aplanado, o Fondo + capas): se convierte a capa normal (`set layer background`) antes de `selectAllLayers`; antes fallaba con "Select All Layers is not currently available" o dejaba el Fondo fuera de ART.
