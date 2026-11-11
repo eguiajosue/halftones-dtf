@@ -18,3 +18,11 @@ El plugin se escribió sin poder ejecutarlo en Photoshop. Antes de distribuirlo,
 - [ ] `minimum` + `preserveShape`, `defringe`, `median`, `thresholdClassEvent`, `thresholdClassEvent` como capa de ajuste
 - [ ] Respuesta de `showColorPicker` · [ ] `duplicate merged` · [ ] `convertMode bitmapMode/halftoneScreen`
 - [ ] Polaridad (T2): si los puntos salen invertidos, invertir los tiles (`255 - v`) y regenerar con `npm run tiles`.
+
+## Optimización de rendimiento — descriptores nuevos a validar (paso 3)
+- [ ] Batch `[make, …, get layerID]` (`layers.js › makeAndId`): el `get` devuelve la capa recién creada. En el semitono, el `set` de modo Hard Mix va con `_target: targetLayer` dentro del mismo batch (antes por ID).
+- [ ] `convertMode` con `depth: 8` (`pipeline.js › ensure8Bit`) en documentos de 16/32 bits; si falla, el plugin sigue sin convertir.
+- [ ] Aplicar: la selección de máscara + limpieza + erosión van en un solo `batchPlay`, y `select RGB` + `rasterizeLayer` + `delete máscara apply` + `defringe` en otro. Comparar el resultado con la versión anterior.
+- [ ] Aplicar no recalcula la máscara si ya está al día (vista Prenda/Alfa); en vistas Máscara/Original sí.
+- [ ] Realce de sombras en un solo batch (`select` + `delete filterFX` + `adaptCorrect` por capa); si el batch falla, cae al camino paso a paso.
+- [ ] Los `moveBelow/moveAbove` del DOM se mantienen: no hay descriptor `move` por ID validado para sustituirlos.

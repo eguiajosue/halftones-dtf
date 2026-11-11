@@ -20,6 +20,16 @@ function getWorkDoc() {
   return d;
 }
 
+// Orígenes de 16/32 bits duplican la memoria y ralentizan filtros; la máscara final es binaria, así que
+// el documento de trabajo va a 8 bits/canal. Si falla, se sigue como estaba (no es crítico).
+async function ensure8Bit(work) {
+  const bits = String(work.bitsPerChannel || "");
+  if (!bits || /(^|\D)8$|eight/i.test(bits)) return;
+  try {
+    await bp({ _obj: "convertMode", depth: 8, merge: false });                                       // 🔍
+  } catch (e) { console.log("No se pudo pasar a 8 bits:", e); }
+}
+
 // ---- Preparar ---------------------------------------------------------------
 // s = ajustes de la UI + widthPx / heightPx (tamaño objetivo a 300 ppi)
 async function runPrep(s) {
@@ -39,6 +49,7 @@ async function runPrep(s) {
       app.activeDocument = work;
       state.workDocId = work.id;
       if (work.mode !== constants.DocumentMode.RGB) await work.changeMode(constants.ChangeMode.RGB);
+      await ensure8Bit(work);
 
       at("historial");
       const hid = await ctx.hostControl.suspendHistory({ documentID: work.id, name: "Open-DTF: Preparar" });
@@ -154,38 +165,42 @@ async function applyPrep(s) {
     ctx.reportProgress({ value: 0.1, commandName: "Calculando máscara" });
 
     // 1) Máscara final: motor nativo de Mapa de bits (opcional) o motivo + Hard Mix
-    await refreshMask(s);
+    // Si el ajuste en vivo la dejó al día (vista Prenda/Alfa, máscara activa) no se recalcula.
+    const maskReady = !state.maskStale && (state.previewMode === "shirt" || state.previewMode === "alpha");
+    if (!maskReady) await refreshMask(s);
     if (s.nativeFinal && s.halftone && s.knockout) {
       try { await nativeScreenMask(s); }
       catch (e) { console.log("Trama nativa no disponible, se usa el motivo:", e); await refreshMask(s); }
     }
     checkCancel(ctx);
-
-    await selectLayer(L.art);
-    await bp({ _obj: "select", _target: [channel("mask")], makeVisible: false });
     ctx.reportProgress({ value: 0.4, commandName: "Limpieza" });
 
-    // 2) Limpieza sobre la máscara
+    // 2) Seleccionar la máscara de ART + limpieza + de-fringe (erosión de 1 px), todo en un viaje
     const radius = { none: null, standard: 0.6, high: 1.2 }[s.cleanup];
+    const cleanup = [];
     if (radius) {
-      if (s.cleanup === "high") await bp({ _obj: "median", radius: px(1) });
-      await bp([{ _obj: "gaussianBlur", radius: px(radius) }, { _obj: "thresholdClassEvent", level: 128 }]);
+      if (s.cleanup === "high") cleanup.push({ _obj: "median", radius: px(1) });
+      cleanup.push({ _obj: "gaussianBlur", radius: px(radius) }, { _obj: "thresholdClassEvent", level: 128 });
     }
-    // 3) De-fringe: erosionar 1 px la máscara
     if (s.defringe) {
-      await bp({ _obj: "minimum", radius: px(1),
-                 preserveShape: { _enum: "preserveShape", _value: "roundness" } });                 // 🔍
+      cleanup.push({ _obj: "minimum", radius: px(1),
+                     preserveShape: { _enum: "preserveShape", _value: "roundness" } });             // 🔍
     }
+    await bp([
+      { _obj: "select", _target: [layerById(L.art)], makeVisible: false },
+      { _obj: "select", _target: [channel("mask")], makeVisible: false },
+      ...cleanup
+    ]);
     checkCancel(ctx);
     ctx.reportProgress({ value: 0.6, commandName: "Rasterizando" });
 
-    // 4) Rasterizar y aplicar la máscara
-    await bp({ _obj: "select", _target: [channel("RGB")], makeVisible: false });
+    // 3) Rasterizar y aplicar la máscara (+ defringe de capa), en un viaje
     await bp([
+      { _obj: "select", _target: [channel("RGB")], makeVisible: false },
       { _obj: "rasterizeLayer", _target: [layerById(L.art)] },
-      { _obj: "delete", _target: [channel("mask")], apply: true }
+      { _obj: "delete", _target: [channel("mask")], apply: true },
+      ...(s.defringe ? [{ _obj: "defringe", width: 1 }] : [])                                       // 🔍
     ]);
-    if (s.defringe) await bp({ _obj: "defringe", width: 1 });                                       // 🔍
 
     // 5) Resultado: documento nuevo con una sola capa con alfa
     const name = baseName(work.title).replace(/ - Prep$/, "") + " - Prepped";
